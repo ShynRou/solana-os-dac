@@ -46,6 +46,8 @@ static int s_n, s_cap;
 static uint32_t s_after;                // the highest id collected (in RAM)
 static uint32_t s_saved;                // the highest id the card's index holds: what we acknowledge
 static uint32_t s_epoch;
+static uint32_t s_server_gen;           // os_cloud_server_gen() when the list was read
+static char s_server[96];               // the server the list and its cursor belong to
 static bool s_ready;                    // the list was read from the card for this epoch
 static bool s_card;                     // ... and the card was there
 
@@ -53,6 +55,7 @@ static bool s_card;                     // ... and the card was there
 static bool s_on;
 static bool s_busy, s_failed;
 static void *s_tok;                     // os_api ctx of the collection running
+static uint32_t s_tok_gen;              // os_cloud_server_gen() when it began
 static int s_pages;
 static int64_t s_synced_at, s_failed_at, s_seen_hello;
 static int s_new;                       // new messages this collection, for the notice
@@ -135,6 +138,7 @@ static bool save_index(void)
         return false;
     }
     cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "server", s_server);
     cJSON_AddNumberToObject(root, "after", s_after);
     cJSON *items = cJSON_AddArrayToObject(root, "items");
     for (int i = 0; i < s_n; i++) {
@@ -215,11 +219,25 @@ static void parse_body(const cJSON *o, mailbox_mail_t *m)
     }
 }
 
+// The configured server's origin. Mail ids and the cursor are that server's.
+static void current_server(char *out, size_t n)
+{
+    out[0] = 0;
+    os_cloud_info_t *in = malloc(sizeof(*in));
+    if (in) {
+        os_cloud_get_info(in);
+        strlcpy(out, in->server, n);
+        free(in);
+    }
+}
+
 static void load(void)
 {
     s_n = 0;
     s_after = s_saved = 0;
     s_epoch = os_data_epoch();
+    s_server_gen = os_cloud_server_gen();
+    current_server(s_server, sizeof(s_server));
     s_card = os_data_ready();
     s_ready = true;
     if (!alloc_slots() || !s_card) {
@@ -240,15 +258,30 @@ static void load(void)
             s_n++;
         }
     }
+    // Another server's mailbox (the owner kept, the server changed): its ids and
+    // cursor mean nothing here, so it goes, files too, and collecting starts over.
+    // An index without "server" (2.3.0) is the current server's.
+    const char *was = game_jstr(root, "server");
+    bool other = root && was && was[0] && strcmp(was, s_server);
     cJSON_Delete(root);
+    if (other) {
+        ESP_LOGI(TAG, "the server changed: the old server's %d messages go", s_n);
+        while (s_n > 0) {
+            remove_at(s_n - 1, true);
+        }
+        s_after = s_saved = 0;
+        save_index();
+    }
     ESP_LOGI(TAG, "%d on the card, after %" PRIu32, s_n, s_after);
 }
 
-// Before every use: a wipe (new owner, factory reset) or a card put in or
-// taken out since the list was read means it is someone else's or elsewhere.
+// Before every use: a wipe (new owner, factory reset), a card put in or
+// taken out, or another server since the list was read means it is someone
+// else's or elsewhere.
 static void fresh(void)
 {
-    if (!s_ready || s_epoch != os_data_epoch() || s_card != os_data_ready()) {
+    if (!s_ready || s_epoch != os_data_epoch() || s_card != os_data_ready() ||
+        s_server_gen != os_cloud_server_gen()) {
         load();
     }
 }
@@ -486,6 +519,10 @@ static void ack_cb(int status, const char *body, void *ctx)
     if (ctx != s_tok) {
         return;
     }
+    if (s_tok_gen != os_cloud_server_gen()) {
+        finish(false);                      // the old server's answer
+        return;
+    }
     // A lost ack costs nothing: the next collection asks after our own last id.
     finish(status == 200);
 }
@@ -493,6 +530,12 @@ static void ack_cb(int status, const char *body, void *ctx)
 static void page_cb(int status, const char *body, void *ctx)
 {
     if (ctx != s_tok) {
+        return;
+    }
+    if (s_tok_gen != os_cloud_server_gen()) {
+        // The server changed mid-collection: this page is the old server's, and
+        // its ids would move the new server's cursor. The retry starts afresh.
+        finish(false);
         return;
     }
     cJSON *root = status == 200 && body ? cJSON_Parse(body) : NULL;
@@ -592,6 +635,7 @@ bool mailbox_sync(void)
     s_pages = 0;
     s_new = 0;
     s_tok = os_api_token();
+    s_tok_gen = os_cloud_server_gen();
     get_page();
     return s_busy || !s_failed;
 }

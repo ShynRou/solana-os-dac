@@ -870,7 +870,8 @@ whole destination must be inside the app area.
   in 15.4 ms, the whole app area in 27.9 ms); a `ui_frame` while the last one is still on
   its way waits for it. Ask `sys_tick(16)` for a tick every frame of a 60 Hz game.
 - **Cost**: host steps as a blit, 1 per 16 pixels converted, or 1 per 256 sent with no
-  copy. A screenshot (`shot` on the console) shows a converted frame, not one sent with no
+  copy (only a frame that meets every condition of "No copy" above: an unaligned one pays
+  the converted rate). A screenshot (`shot` on the console) shows a converted frame, not one sent with no
   copy.
 - **In the emulator** the frame goes into the page's screen, with the same rules.
 

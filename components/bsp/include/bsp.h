@@ -68,6 +68,17 @@ bool bsp_display_inverted(void);
 // (bsp_display_frame_wait). LVGL's next redraw of the area paints over the
 // frame. bsp_display_frame_end() waits and frees the staging buffer.
 esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x, int y, int dw, int dh, bool be);
+// Whether bsp_display_frame takes that frame from where it is (no copy), as the
+// one rule its caller charges by and it draws by (the emulator copies every
+// frame but charges the same).
+#define BSP_FRAME_ALIGN 64              // the cache line: DMA from PSRAM needs whole lines
+static inline bool bsp_display_frame_no_copy(const uint16_t *px, int stride, int w, int h, int x, int y,
+                                             int dw, int dh, bool be)
+{
+    size_t bytes = (size_t)w * h * 2;
+    return be && dw == w && dh == h && stride == w && x >= 0 && y >= 0 && x + w <= BOARD_LCD_H_RES &&
+           y + h <= BOARD_LCD_V_RES && !((uintptr_t)px % BSP_FRAME_ALIGN) && !(bytes % BSP_FRAME_ALIGN);
+}
 int bsp_display_frame_direct(void);     // 1: the last frame went from the caller's buffer (no copy)
 void bsp_display_frame_wait(void);      // the last frame's transfer is done
 void bsp_display_frame_end(void);

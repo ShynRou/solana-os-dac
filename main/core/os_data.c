@@ -94,13 +94,18 @@ bool os_data_write(const char *rel, const char *data, size_t len)
     }
     os_data_path(path, sizeof(path), rel);
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    struct stat st;
-    if (stat(path, &st) != 0 && stat(tmp, &st) == 0 && S_ISREG(st.st_mode)) {
-        // The last write's rename failed: the .tmp is the only complete copy.
-        // Put it in place before "wb" truncates it.
-        rename(tmp, path);
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        fclose(f);
+    } else if (rename(tmp, path) != 0 && errno != ENOENT) {
+        // No file but a .tmp: the last write's rename failed and the .tmp is the
+        // only complete copy. It goes in place before "wb" truncates it; if it
+        // can't, nothing is written, so it stays readable (os_data_read).
+        // (No .tmp at all is ENOENT: nothing to put back.)
+        ESP_LOGW(TAG, "can't put %s back", tmp);
+        return false;
     }
-    FILE *f = fopen(tmp, "wb");
+    f = fopen(tmp, "wb");
     if (!f) {
         ESP_LOGW(TAG, "can't write %s", tmp);
         return false;
@@ -190,8 +195,14 @@ static bool remove_tree(const char *path)
 
 bool os_data_remove(const char *rel)
 {
-    char path[160];
+    char path[160], tmp[168];
     os_data_path(path, sizeof(path), rel);
+    // A replace cut short leaves the file's complete copy as .tmp, which
+    // os_data_read takes: removing the file removes that too.
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    if (unlink(tmp) != 0 && errno != ENOENT) {
+        return false;
+    }
     return remove_tree(path);
 }
 

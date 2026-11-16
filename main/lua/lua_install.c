@@ -45,6 +45,7 @@
 #include "lua_aot.h"
 #include "lua_host.h"
 #include "lua_install.h"
+#include "lua_priv.h"
 #include "lua_xip.h"
 
 static const char *TAG = "lua_install";
@@ -516,11 +517,19 @@ static bool commit(const char *id, const char *manifest, char *why, size_t n)
     app_dir(cur, sizeof(cur), id, "");
     app_dir(old, sizeof(old), id, ".old");
     app_dir(nw, sizeof(nw), id, ".new");
-    snprintf(from, sizeof(from), "%s/data.json", cur);
-    snprintf(to, sizeof(to), "%s/data.json", nw);
     s_svc_was_running = svc;                // the worker restarts it at its end, whatever happens next
-    if (stat(from, &st) == 0 && !copy_file(from, to)) {
-        return card_fail(why, n);           // the app's storage moves along
+    // The app's storage moves along, through os_data so a data.json.tmp that
+    // is the only complete copy (a replace cut short) moves too.
+    snprintf(from, sizeof(from), "apps/%s/data.json", id);
+    snprintf(to, sizeof(to), "apps/%s.new/data.json", id);
+    if (os_data_exists(from)) {
+        size_t len = 0;
+        char *data = os_data_read(from, LH_STORAGE_MAX, &len);
+        bool copied = data && os_data_write(to, data, len);
+        free(data);
+        if (!copied) {
+            return card_fail(why, n);
+        }
     }
     snprintf(rel, sizeof(rel), "apps/%s.old", id);
     xSemaphoreTake(s_swap, portMAX_DELAY);

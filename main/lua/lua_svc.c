@@ -117,6 +117,8 @@ struct lh_svc {
     bool c;                             // a C app's service
     uint32_t req_gen;                   // the app launch whose service.start waits for the boot, 0 = none
     uint8_t stop;                       // STOP_*: asked to stop (the svc task ends it)
+    bool held;                          // a fresh start whose record isn't on the card yet: the svc task
+                                        // leaves the slot alone (no boot, no end) until start() lets go
     char why[OS_SERVICE_STATUS_MAX + 1];    // the status it ends with
     lh_ev_t ev[LH_SVC_EVENTS];          // ring (under s_mx)
     int ev_head, ev_n;
@@ -525,6 +527,17 @@ static void checks_arm(void);
 // (or already running); else why not.
 static bool ask_stop(const char *id, uint8_t kind, const char *why);
 
+// Lets the svc task have a fresh slot start() held while it wrote services.json.
+static void release(const char *id)
+{
+    xSemaphoreTake(s_mx, portMAX_DELAY);
+    struct lh_svc *sv = slot_find(id);
+    if (sv) {
+        sv->held = false;
+    }
+    xSemaphoreGive(s_mx);
+}
+
 static const char *start(const char *id, uint32_t req_gen)
 {
     // req_gen is handed to the slot below (and zeroed): whether the app on
@@ -606,6 +619,7 @@ static const char *start(const char *id, uint32_t req_gen)
         sv->req_gen = req_gen;
         req_gen = 0;
         fresh = true;
+        sv->held = true;                    // its code waits for known_save below
         strlcpy(sv->id, id, sizeof(sv->id));
         s_slot[i] = sv;
         k->failed = false;
@@ -637,10 +651,14 @@ static const char *start(const char *id, uint32_t req_gen)
         if (!asked) {
             ask_stop(id, STOP_SYSTEM, "Not started: the card can't record it");
             ESP_LOGW(TAG, "%s: not started: services.json can't be written", id);
+            release(id);
             wake_task();
             return "card error";
         }
         ESP_LOGW(TAG, "%s: services.json can't be written: started for the app, never at boot", id);
+    }
+    if (!why && fresh) {
+        release(id);                        // recorded (or the app asked): the svc task may boot it
     }
     if (!why) {
         reply(req_gen, NULL);               // it was running already
@@ -1638,8 +1656,9 @@ static void svc_task(void *arg)
             struct lh_svc *sv = s_slot[i];
             uint8_t state = sv ? sv->state : 0;
             bool stop = sv && sv->stop;
+            bool held = sv && sv->held;
             xSemaphoreGive(s_mx);
-            if (!sv) {
+            if (!sv || held) {
                 continue;
             }
             if (state == SV_STARTING && !stop) {

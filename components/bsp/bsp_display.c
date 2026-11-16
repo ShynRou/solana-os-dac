@@ -275,7 +275,7 @@ bool bsp_display_inverted(void)
 // on. The staging buffer is kept from the first frame until
 // bsp_display_frame_end(): a frame is at most the screen, 150 KB of PSRAM.
 
-#define FRAME_ALIGN 64                  // the cache line: DMA from PSRAM needs whole lines
+#define FRAME_ALIGN BSP_FRAME_ALIGN
 
 static uint16_t *s_stage;               // big-endian pixels of the last frame
 static size_t s_stage_cap;
@@ -311,7 +311,7 @@ esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x,
     size_t need = (bytes + FRAME_ALIGN - 1) & ~(size_t)(FRAME_ALIGN - 1);
     bool same = dw == w && dh == h;
     bsp_lcd_hold();                     // the last frame (or LVGL's flush) is done with the buffer
-    if (be && same && stride == w && cw == w && ch == h && !((uintptr_t)px % FRAME_ALIGN) && !(bytes % FRAME_ALIGN)) {
+    if (bsp_display_frame_no_copy(px, stride, w, h, x, y, dw, dh, be)) {
         // Sent from where it is: the cache written back, the DMA reads it.
         esp_cache_msync((void *)px, bytes, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
         s_direct = 1;

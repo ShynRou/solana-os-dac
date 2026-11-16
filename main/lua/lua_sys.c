@@ -442,6 +442,33 @@ static void store_push(lua_State *L, const char *json, size_t len)
     }
 }
 
+static int store_push_p(lua_State *L)
+{
+    const char *json = lua_touserdata(L, 1);
+    size_t len = (size_t)lua_tointeger(L, 2);
+    lua_settop(L, 0);
+    store_push(L, json, len);
+    return 1;
+}
+
+// store_push, then frees json (not on the Lua heap) whatever happens: building
+// the table can raise "not enough memory", which is raised again after the free.
+static void store_push_free(lua_State *L, char *json, size_t len)
+{
+    if (!lua_checkstack(L, 3)) {
+        free(json);
+        luaL_error(L, "storage: not enough memory");
+    }
+    lua_pushcfunction(L, store_push_p);     // a light C function, a pointer and a number: no allocation
+    lua_pushlightuserdata(L, json);
+    lua_pushinteger(L, (lua_Integer)len);
+    int r = lua_pcall(L, 2, 1, 0);
+    free(json);
+    if (r != LUA_OK) {
+        lua_error(L);
+    }
+}
+
 // The other side set something since this table was built: build it again.
 static void store_refresh(lua_State *L, lh_t *s)
 {
@@ -459,8 +486,7 @@ static void store_refresh(lua_State *L, lh_t *s)
         // The old table and its version stay: nothing is lost, the call fails.
         luaL_error(L, "storage: not enough memory");
     }
-    store_push(L, json, len);
-    free(json);
+    store_push_free(L, json, len);
     luaL_unref(L, LUA_REGISTRYINDEX, s->store_ref);
     s->store_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     s->store_ver = ver;
@@ -610,8 +636,7 @@ bool lh_storage_load(lh_t *s)
     if (!store_copy(id, &json, &len, &ver)) {
         return luaL_error(L, "storage: not enough memory");
     }
-    store_push(L, json, len);
-    free(json);
+    store_push_free(L, json, len);
     s->store_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     s->store_ver = ver;
     return true;

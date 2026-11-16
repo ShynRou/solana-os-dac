@@ -99,10 +99,12 @@ static FILE *open_read(lh_t *s, const char *name, size_t len, long *size, unsign
     char path[200];
     struct stat st;
     files_path(s, name, len, path, sizeof(path));
-    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
-        return NULL;
-    }
+    // Open first, then ask the open file: the size and kind are the file read.
     FILE *f = fopen(path, "rb");
+    if (f && (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode))) {
+        fclose(f);
+        f = NULL;
+    }
     if (f) {
         s->files_f = f;
         s->files_size = (long)st.st_size;

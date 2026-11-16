@@ -1130,7 +1130,9 @@ static void n_frame(wasm_exec_env_t env, uint64_t *a)
         }
     }
     bool be = flags & LW_FRAME_BE;
-    bool direct = be && dw == fw && dhh == h;
+    // The cheap rate only for the frame the DMA reads where it is (whole, unscaled,
+    // aligned); anything bsp_display_frame copies pays per pixel copied.
+    bool direct = bsp_display_frame_no_copy(px, fw, fw, h, sx, sy, dw, dhh, be);
     if (!lw_charge(w, direct ? (uint32_t)(fw * h) / LW_FRAME_DMA_STEP : (uint32_t)(dw * dhh) / LW_FRAME_PX_STEP)) {
         return;
     }

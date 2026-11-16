@@ -246,6 +246,49 @@ the whole OS.
   is gone; `bsp_battery_read` gives single samples. Host test:
   `sh main/core/tests/battery_test.sh`.
 
+## 2.3.1 (not released on its own: ships in 2.5.0)
+
+Fixes from the review of solana-os#23 (2.3.0 on main). Nothing new for apps.
+
+- **A service's code waits for its record.** `start()` (`lua_svc.c`) put a fresh slot where
+  the svc task could boot it while `services.json` was still being written, so a restart in
+  that window left no "starting" mark and the next boot could start the same failing service
+  again. The slot is held (`held`) until the write is done (or the app on screen asked for it,
+  which runs without a record, as before); the svc task neither boots nor ends a held slot.
+- **The Mailbox belongs to one server.** Its index keeps the server's origin (`server`); a
+  badge moved to another server with the same owner drops the old server's messages and starts
+  collecting from 0, where it used to ask the new server for ids after the old server's last
+  and could acknowledge mail it never collected. A page or an acknowledgement answered by the
+  old server after a change (`os_cloud_server_gen()`) counts as a failed collection. An index
+  from 2.3.0, without `server`, is the current server's. The origin is read with
+  `os_cloud_get_server()`, which copies it under the lock and allocates nothing, so a badge
+  short of memory can't read it as "" and take its own server for another; with no server
+  configured the mail stays and keeps its server's name.
+- **Saved data survives a replace cut short** (`os_data.c`):
+  - `os_data_write` puts a leftover `.tmp` (the only complete copy) back in place before
+    writing; when that rename fails it now writes nothing, where it used to truncate the copy.
+    The check opens the file instead of `stat`ing it (CodeQL's time-of-check alert).
+  - `os_data_remove` removes the `.tmp` too, so a removed file (the Guide's cache, a mail)
+    doesn't come back through `os_data_read`.
+  - An app update copies `data.json` through `os_data_read`/`os_data_write`
+    (`lua_install.c`), so storage that only exists as `data.json.tmp` moves to the new version
+    instead of being deleted with the old folder.
+- **`storage` frees its copy on an error.** Building the table from the shared copy
+  (`lh_storage_load`, a refresh after the other side's write) runs protected and frees the
+  JSON copy before raising "not enough memory" again; the copy is outside the Lua heap, so an
+  app near its limit leaked up to 16 KB per failed decode.
+- **`files` reads what it checked**: `lh_files` opens the file, then `fstat`s it (CodeQL).
+- **`ui_frame`'s cheap rate only without a copy.** The host charged 1 step per 256 pixels for
+  every unscaled big-endian frame, also an unaligned one the badge copies (16 times the work).
+  One predicate, `bsp_display_frame_no_copy()` in `bsp.h`, now decides both the charge and the
+  path, in both builds (the emulator copies every frame but charges the same).
+- Measured on a production badge (4ZT2BX, C5 rev 1.0): `tests/t-svc-store` (an app and its
+  service, 200 keys each, all kept, read back from the card after a relaunch) and
+  `tests/t-ownfiles` pass, the heap back at the launcher's after each; the emulator's
+  `tests/svc-run.ts` passes (42 checks). Not tested on hardware: a server change with mail
+  waiting, a failed `.tmp` rename, an update over a `data.json.tmp`, a storage decode that runs
+  out of memory.
+
 ## 2.3.0 (unreleased)
 
 C apps, background services with the first two built on them (Mailbox and
