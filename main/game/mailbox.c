@@ -219,25 +219,13 @@ static void parse_body(const cJSON *o, mailbox_mail_t *m)
     }
 }
 
-// The configured server's origin. Mail ids and the cursor are that server's.
-static void current_server(char *out, size_t n)
-{
-    out[0] = 0;
-    os_cloud_info_t *in = malloc(sizeof(*in));
-    if (in) {
-        os_cloud_get_info(in);
-        strlcpy(out, in->server, n);
-        free(in);
-    }
-}
-
 static void load(void)
 {
     s_n = 0;
     s_after = s_saved = 0;
     s_epoch = os_data_epoch();
     s_server_gen = os_cloud_server_gen();
-    current_server(s_server, sizeof(s_server));
+    os_cloud_get_server(s_server, sizeof(s_server));   // no allocation: it can't fail
     s_card = os_data_ready();
     s_ready = true;
     if (!alloc_slots() || !s_card) {
@@ -260,9 +248,14 @@ static void load(void)
     }
     // Another server's mailbox (the owner kept, the server changed): its ids and
     // cursor mean nothing here, so it goes, files too, and collecting starts over.
-    // An index without "server" (2.3.0) is the current server's.
+    // An index without "server" (2.3.0) is the current server's. With no
+    // server configured nothing is anyone else's: the mail stays and keeps
+    // its server, so setting the same one again finds it.
     const char *was = game_jstr(root, "server");
-    bool other = root && was && was[0] && strcmp(was, s_server);
+    bool other = root && was && was[0] && s_server[0] && strcmp(was, s_server);
+    if (!s_server[0] && was) {
+        strlcpy(s_server, was, sizeof(s_server));
+    }
     cJSON_Delete(root);
     if (other) {
         ESP_LOGI(TAG, "the server changed: the old server's %d messages go", s_n);

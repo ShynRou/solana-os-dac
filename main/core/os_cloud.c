@@ -753,6 +753,13 @@ void os_cloud_get_info(os_cloud_info_t *out)
     unlock();
 }
 
+void os_cloud_get_server(char *out, size_t n)
+{
+    lock();
+    strlcpy(out, s_info.server, n);
+    unlock();
+}
+
 void os_cloud_refresh(void)
 {
     if (s_task) {
