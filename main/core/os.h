@@ -28,6 +28,9 @@ typedef struct {
     void (*on_tick)(void);          // every OS_TICK_MS
     void (*on_button)(uint32_t bit); // optional: raw presses instead of keys (calibration)
     bool (*visible)(void);          // optional: in the launcher only while true (Beacon); "open <id>" works anyway
+    // optional (2.5.0): a key whose press on_key got was let go, held_ms after it went down.
+    // Never HOME; never a key a dialog or the OS took; a console "key" is a press and its release.
+    void (*on_key_up)(os_key_t key, uint32_t held_ms);
 } os_app_t;
 
 // apps/registry.c

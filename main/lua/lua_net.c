@@ -817,7 +817,7 @@ static void mesh_handler(os_mesh_type_t type, const os_mesh_peer_t *from, const 
             memcpy(data, from->id, idn + 1);
             memcpy(data + idn + 1, text, n + 1);
             lh_ev_t ev = { .kind = is_meet ? LH_EV_MEET : LH_EV_MESH, .gen = gen, .data = data };
-            if (!lh_post(&ev)) {
+            if (!lh_post_lossy(&ev)) {
                 free(data);
             }
         }
@@ -935,15 +935,23 @@ static int l_mesh_send(lua_State *L)
     bool bcast = !strcmp(to, "*");
     luaL_argcheck(L, bcast || strlen(to) == OS_MESH_ID_LEN, 1, "a badge id or \"*\"");
     int64_t now = lh_now();
+    // Broadcasts reach every badge in the room and each one handles them: 4 a
+    // second. Messages to badges heard over the radio, 30 in all (2.5.0): a
+    // two-badge game straight over ESP-NOW. Broadcasts and bridged peers
+    // (through the server) share the 4.
+    bool fast = !bcast && !os_mesh_bridged(to);
+    int64_t *ring = fast ? s->mesh_sent_to : s->mesh_sent;
+    int ring_n = fast ? LH_MESH_TO_PER_S : LH_MESH_PER_S;
     int oldest = 0;
-    for (int i = 1; i < LH_MESH_PER_S; i++) {
-        if (s->mesh_sent[i] < s->mesh_sent[oldest]) {
+    for (int i = 1; i < ring_n; i++) {
+        if (ring[i] < ring[oldest]) {
             oldest = i;
         }
     }
-    if (s->mesh_sent[oldest] && now - s->mesh_sent[oldest] < 1000) {
+    if (ring[oldest] && now - ring[oldest] < 1000) {
         lua_pushnil(L);
-        lua_pushliteral(L, "too fast: 4 messages per second");
+        lua_pushstring(L, fast ? "too fast: 30 messages per second to badges nearby"
+                               : "too fast: 4 messages per second to everyone or over a bridge");
         return 2;
     }
     lh_jbuf_t d = { .max = LH_MESH_MAX };
@@ -970,7 +978,7 @@ static int l_mesh_send(lua_State *L)
         }
         return 2;
     }
-    s->mesh_sent[oldest] = now;
+    ring[oldest] = now;
     lua_pushboolean(L, 1);
     return 1;
 }

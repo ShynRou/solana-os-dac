@@ -158,6 +158,7 @@ SOS_IMPORT(host_abi) int32_t sos_host_abi(void);    // the badge's SOS_ABI
 
 SOS_EXPORT(on_start) void on_start(void);                           // once, at launch: build the UI here
 SOS_EXPORT(on_key) int32_t on_key(int32_t key, int32_t repeat);     // SOS_KEY_*; return 1 if handled (0 for BACK exits the app)
+SOS_EXPORT(on_key_up) void on_key_up(int32_t key, int32_t ms);   // 2.5.0: a key on_key got was let go, ms after its press
 SOS_EXPORT(on_tick) void on_tick(int32_t ms);                       // every 30 ms; ms since the last tick
 SOS_EXPORT(on_exit) void on_exit(void);                             // the app is closing
 SOS_EXPORT(on_mesh) void on_mesh(void);                             // frame: 1 = the sender's badge id, 2 = the message (a table)

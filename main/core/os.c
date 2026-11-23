@@ -445,6 +445,10 @@ static bool overlay_key(os_key_t key, bool repeat)
 
 static void repin_display_events(void);
 
+// Keys whose press went to the app (bit per os_key_t) and when, for on_key_up.
+static uint32_t s_down;
+static int64_t s_down_ms[OS_KEY_COUNT];
+
 static void switch_to(const os_app_t *app)
 {
     if (app == s_app) {
@@ -459,6 +463,7 @@ static void switch_to(const os_app_t *app)
     if (s_app && s_app->on_exit) {
         s_app->on_exit();
     }
+    s_down = 0;                     // presses the old app got: their releases are nobody's
     lv_obj_clean(s_root);
     lv_obj_scroll_to(s_root, 0, 0, LV_ANIM_OFF);
     repin_display_events();         // the app's memory is free now
@@ -482,11 +487,12 @@ bool os_held(void)
     return s_hold != NULL;
 }
 
-static void dispatch(os_key_t key, bool repeat)
+// True when the app on screen got it (and is still the one on screen).
+static bool dispatch(os_key_t key, bool repeat)
 {
     s_last_key_ms = now_ms();
     if (confirm_key(key, repeat) || overlay_key(key, repeat)) {
-        return;
+        return false;
     }
     if (key == OS_KEY_HOME) {
         if (!repeat && s_hold) {
@@ -494,11 +500,34 @@ static void dispatch(os_key_t key, bool repeat)
         } else if (!repeat) {
             switch_to(&os_launcher);
         }
-        return;
+        return false;
     }
-    bool handled = s_app->on_key && s_app->on_key(key, repeat);
+    const os_app_t *app = s_app;
+    bool handled = app->on_key && app->on_key(key, repeat);
     if (!handled && key == OS_KEY_BACK && !repeat && s_app != &os_launcher) {
         switch_to(&os_launcher);
+    }
+    return s_app == app;
+}
+
+// A press the app got: its release goes to on_key_up.
+static void press_to_app(os_key_t k)
+{
+    if (s_app->on_key_up && k >= 0 && k < OS_KEY_COUNT) {
+        s_down |= 1u << k;
+        s_down_ms[k] = now_ms();
+    }
+}
+
+static void release(os_key_t k)
+{
+    if (k < 0 || k >= OS_KEY_COUNT || !(s_down & (1u << k))) {
+        return;
+    }
+    s_down &= ~(1u << k);
+    if (s_app->on_key_up) {
+        int64_t ms = now_ms() - s_down_ms[k];
+        s_app->on_key_up(k, (uint32_t)(ms < 0 ? 0 : ms));
     }
 }
 
@@ -694,9 +723,15 @@ static void handle(const os_event_t *ev, os_key_t *held, int64_t *next_repeat, u
 {
     switch (ev->kind) {
     case EV_BUTTONS: {
-        uint32_t down = ev->a & ev->b;
+        uint32_t down = ev->a & ev->b, up = ~ev->a & ev->b;
         if (*held_bit && !(ev->a & *held_bit)) {
             take_over_repeat(ev->a & ~down, held, next_repeat, held_bit);
+        }
+        for (uint32_t bit = 1; up; bit <<= 1) {
+            if (up & bit) {
+                up &= ~bit;
+                release(os_key_from_button(bit));
+            }
         }
         for (uint32_t bit = 1; down; bit <<= 1) {
             if (!(down & bit)) {
@@ -712,7 +747,9 @@ static void handle(const os_event_t *ev, os_key_t *held, int64_t *next_repeat, u
             if (k == OS_KEY_NONE) {
                 continue;
             }
-            dispatch(k, false);
+            if (dispatch(k, false)) {
+                press_to_app(k);
+            }
             if (k != OS_KEY_SELECT && k != OS_KEY_HOME) {
                 *held = k;
                 *held_bit = bit;
@@ -722,7 +759,11 @@ static void handle(const os_event_t *ev, os_key_t *held, int64_t *next_repeat, u
         break;
     }
     case EV_KEY:
-        dispatch(ev->a, false);
+        // The console's keys are taps: a press, then its release.
+        if (dispatch(ev->a, false)) {
+            press_to_app(ev->a);
+            release(ev->a);
+        }
         break;
     case EV_LAUNCH:
         switch_to(ev->app);

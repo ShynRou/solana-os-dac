@@ -56,7 +56,8 @@
 #define LH_TICK_MIN_MS      16          // sys.tick's shortest (2.3.0): a 60 Hz game's frame
 #define LH_STORAGE_MAX      (16 * 1024) // data.json
 #define LH_STORAGE_SAVE_MS  1000        // storage.set writes at most this often
-#define LH_MESH_PER_S       4
+#define LH_MESH_PER_S       4           // broadcasts, and messages to a bridged badge
+#define LH_MESH_TO_PER_S    30          // messages to one badge over the radio (2.5.0)
 #define LH_MESH_MAX         200         // bytes of JSON per mesh.send
 #define LH_MEET_MAX         100         // bytes of JSON per side of a mesh.meet
 #define LH_CALLS_MAX        16          // server calls waiting or in flight per app
@@ -238,6 +239,8 @@ typedef struct lh {
     uint32_t obj_order;
     size_t text_total;          // label text bytes on screen
     void *gif_work;             // ui.anim's decoding table (lua_img.c), a userdata kept for the app's life
+    bool img_dirty;             // a canvas changed: lh_img_flush tells LVGL (2.5.0)
+    uint8_t keys_down;          // keys whose press on_key got, for on_key_up (bit per os_key_t)
     int key_refs[3];            // "title", "sub", "right": row lookups that never allocate
 
     // LEDs, shown at the end of each callback
@@ -271,6 +274,7 @@ typedef struct lh {
     // mesh
     int mesh_sub;
     int64_t mesh_sent[LH_MESH_PER_S];
+    int64_t mesh_sent_to[LH_MESH_TO_PER_S];
     int scan_ref;               // mesh.scan's callback, LUA_NOREF when none waits
     struct lh_meet *meet;       // mesh.meet's handshakes (lua_meet.c), made on first use
 
@@ -286,7 +290,8 @@ typedef struct lh {
     // Background services (lua_svc.c, 2.3.0)
     struct lh_svc *svc;         // set: this state is the app's service, not the app on screen
     uint32_t steps_max;         // instructions per callback: LUA_HOST_STEPS_MAX or LUA_SVC_STEPS_MAX
-    int64_t cb_t0;              // a service's callback began (ms): LH_SVC_CALLBACK_MS
+    int64_t cb_t0;              // a service's callback began (ms): LH_SVC_CALLBACK_MS; the main chunk's: LH_BOOT_MS
+    bool booting;               // the main chunk runs (2.5.0): LUA_HOST_STEPS_BOOT, LH_BOOT_MS
     char tag[LUA_PKG_ID_MAX + 5];   // print's tag: the app id, "<id>:svc" in a service
     char mesh_me[7];            // this badge's id when the mesh started for it ("" without one)
     int svc_start_ref;          // the app: service.start's callback while it waits, else LUA_NOREF
@@ -319,6 +324,8 @@ typedef struct {
     uint8_t kind;
     uint8_t key;
     bool repeat;
+    bool up;                    // LH_EV_KEY: the key was let go (2.5.0), ms after its press
+    uint32_t ms;
     uint32_t gen;
     char *data;                 // LH_EV_MESH, LH_EV_MEET: "<from id>\0<json>"; LH_EV_MAIL: the id; freed by the receiver
 } lh_ev_t;
@@ -346,6 +353,7 @@ uintptr_t lh_stack_low(void);
 void lh_stack_enter(int slot, uintptr_t bottom);
 void lh_stack_leave(int slot);
 bool lh_post(const lh_ev_t *ev);                // to the Lua task; false if full
+bool lh_post_lossy(const lh_ev_t *ev);          // the same, but never into the slots kept for keys
 bool lh_post_to(lh_t *s, const lh_ev_t *ev);    // to the task running s: the app's or its service's
 // A new state for s: the counted allocator, the session in the extra space,
 // the instruction hook. NULL: no memory.
@@ -403,6 +411,8 @@ int lh_cv_rect(lua_State *L);
 int lh_cv_line(lua_State *L);
 int lh_cv_image(lua_State *L);
 int lh_cv_get(lua_State *L);
+int lh_ui_frame(lua_State *L);
+void lh_img_flush(lh_t *s);                             // Lua task, LVGL lock held: canvases' changed areas to LVGL
 
 // lua_sys.c: led, timer, sys, badge, json, storage, wifi
 void lh_open_sys(lua_State *L);

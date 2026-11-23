@@ -157,6 +157,14 @@ void os_mesh_nonce(char out[17]);           // 16 random lowercase hex + NUL
 // os_mesh_keep_wifi() holds it.
 void os_mesh_acquire(void);
 void os_mesh_release(void);
+// The radio stays awake (no modem sleep) while anyone holds it (2.5.0): a
+// Lua app's open WebSocket does (os_socket.c), since with modem sleep the AP
+// holds every packet for the badge until its next wake (750 to 2 500 ms round
+// trips measured). Counted; any task, never with os_mesh's lock held.
+void os_mesh_awake_hold(bool hold);
+// id is a bridged peer in the table, live or not: where os_mesh_send sends it
+// (through the server). Any task.
+bool os_mesh_bridged(const char *id);
 
 // For os_bridge. Bridges need the network: while kept, mesh apps don't suspend
 // Wi-Fi (a suspension of ours ends at once; it comes back if a mesh app is

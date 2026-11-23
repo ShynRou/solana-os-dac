@@ -168,6 +168,8 @@ static bool s_keep_bridge;              // os_mesh_keep_wifi(): bridges need the
 static bool s_keep_station;             // a Collaborator station's session rides on the server link
 #define KEPT() (s_keep_bridge || s_keep_station)
 static bool s_awake;                    // what os_radio_stay_awake() was last told
+static int s_awake_holds;               // os_mesh_awake_hold()
+static SemaphoreHandle_t s_awake_mx;    // awake_apply: deciding and telling the radio, as one
 
 // Collaborator station (os_mesh_station), s_lock: its id and HELLO ("" = none).
 #define STATION_HELLO_MAX 200         // os_mesh_station_hello() (2.4.0); the default is ~40
@@ -1004,17 +1006,47 @@ static bool scan_note(uint8_t type, const char *src, int rssi, int ch, const cha
 }
 
 // The radio stays awake (modem sleep misses frames) while anyone needs to
-// hear: a mesh app, a badge beacon or a station. Not with s_lock held.
+// hear: a mesh app, a badge beacon, a station, or an app's WebSocket
+// (os_mesh_awake_hold). Not with s_lock held.
+//
+// Two tasks call it (the OS task; the cloud task for a socket, 2.5.0), so the
+// decision and the radio call are one step under s_awake_mx: else the one
+// that decided first could tell the radio last, and win.
 static void awake_apply(void)
 {
+    xSemaphoreTake(s_awake_mx, portMAX_DELAY);
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    bool want = s_acquired > 0 || s_beacon[0] || s_station[0];
+    bool want = s_acquired > 0 || s_beacon[0] || s_station[0] || s_awake_holds > 0;
     bool change = want != s_awake;
     s_awake = want;
     xSemaphoreGive(s_lock);
     if (change) {
         os_radio_stay_awake(want);
     }
+    xSemaphoreGive(s_awake_mx);
+}
+
+bool os_mesh_bridged(const char *id)
+{
+    if (!s_lock || !id) {
+        return false;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    os_mesh_peer_t *p = find_peer_locked(id);
+    bool bridged = p && s_meta[p - s_peers].bridged;
+    xSemaphoreGive(s_lock);
+    return bridged;
+}
+
+void os_mesh_awake_hold(bool hold)
+{
+    if (!s_lock || !s_awake_mx) {
+        return;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_awake_holds += hold ? 1 : s_awake_holds > 0 ? -1 : 0;
+    xSemaphoreGive(s_lock);
+    awake_apply();
 }
 
 void os_mesh_acquire(void)
@@ -2290,6 +2322,7 @@ static int cmd_mesh(int argc, char **argv)
 void os_mesh_init(void)
 {
     s_lock = xSemaphoreCreateMutex();
+    s_awake_mx = xSemaphoreCreateMutex();
     s_tx_lock = xSemaphoreCreateMutex();
     s_snd_lock = xSemaphoreCreateMutex();
     s_sub_lock = xSemaphoreCreateRecursiveMutex();

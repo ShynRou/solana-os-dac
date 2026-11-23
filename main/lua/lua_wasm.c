@@ -1556,6 +1556,22 @@ static int g_on_key(lua_State *L)
     return 1;
 }
 
+// on_key_up(key, ms) (2.5.0): a key whose press on_key got was let go.
+static int g_on_key_up(lua_State *L)
+{
+    lw_t *w = lh_get(L)->wasm;
+    const char *k = lua_tostring(L, 1);
+    uint32_t argv[2] = { 0, (uint32_t)lua_tointeger(L, 2) };
+    for (uint32_t i = 0; k && i < sizeof(s_keys) / sizeof(s_keys[0]); i++) {
+        if (!strcmp(k, s_keys[i])) {
+            argv[0] = i;
+        }
+    }
+    lua_settop(L, 0);
+    enter(L, w, w->f_key_up, 2, argv);
+    return 0;
+}
+
 static int g_on_tick(lua_State *L)
 {
     lw_t *w = lh_get(L)->wasm;
@@ -1652,6 +1668,7 @@ static int lw_main(lua_State *L)
     const char *entry = s->svc ? "on_service_start" : "on_start";
     w->f_start = wasm_runtime_lookup_function(w->inst, entry);
     w->f_key = wasm_runtime_lookup_function(w->inst, "on_key");
+    w->f_key_up = wasm_runtime_lookup_function(w->inst, "on_key_up");
     w->f_tick = wasm_runtime_lookup_function(w->inst, "on_tick");
     w->f_exit = wasm_runtime_lookup_function(w->inst, "on_exit");
     w->f_mesh = wasm_runtime_lookup_function(w->inst, "on_mesh");
@@ -1662,9 +1679,10 @@ static int lw_main(lua_State *L)
     w->refs_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     static const struct { const char *name; lua_CFunction fn; } globals[] = {
         {"on_key", g_on_key}, {"on_tick", g_on_tick}, {"on_exit", g_on_exit},
-        {"on_mesh", g_on_mesh}, {"on_meet", g_on_meet}, {"on_mail", g_on_mail},
+        {"on_mesh", g_on_mesh}, {"on_meet", g_on_meet}, {"on_mail", g_on_mail}, {"on_key_up", g_on_key_up},
     };
-    wasm_function_inst_t *fns[] = { &w->f_key, &w->f_tick, &w->f_exit, &w->f_mesh, &w->f_meet, &w->f_mail };
+    wasm_function_inst_t *fns[] = { &w->f_key, &w->f_tick, &w->f_exit, &w->f_mesh, &w->f_meet, &w->f_mail,
+                                    &w->f_key_up };
     for (size_t i = 0; i < sizeof(globals) / sizeof(globals[0]); i++) {
         if (*fns[i]) {
             lua_register(L, globals[i].name, globals[i].fn);
@@ -1762,7 +1780,7 @@ static void check_exports(lua_State *L, lw_t *w)
     static const struct { const char *name; uint8_t params, results; } want[] = {
         {"on_start", 0, 0}, {"on_service_start", 0, 0}, {"on_key", 2, 1}, {"on_tick", 1, 0}, {"on_exit", 0, 0},
         {"on_mesh", 0, 0}, {"on_meet", 0, 1}, {"on_mail", 0, 0}, {"badge_abi", 0, 1}, {"_initialize", 0, 0},
-        {"on_service", 0, 0}, {"on_message", 0, 0}, {"on_stop", 0, 0},
+        {"on_service", 0, 0}, {"on_message", 0, 0}, {"on_stop", 0, 0}, {"on_key_up", 2, 0},
     };
     size_t entry = w->s->svc ? 1 : 0;       // the instance's on_start: a service's is on_service_start
     bool start = false;

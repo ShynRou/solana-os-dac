@@ -53,6 +53,7 @@ static const char *TAG = "lua";
 #define LH_PRIO             2           // below the mesh task, above idle
 #define LH_HOOK_EVERY       1000        // instructions between budget checks
 #define LH_QUEUE_LEN        16
+#define LH_QUEUE_KEYS       4           // slots only key events take (lh_post_lossy)
 #define LH_EXIT_WAIT_MS     2000
 #define LH_MAX_WAIT_MS      200         // re-check the quit flag at least this often
 #define LH_LOCK_POLL_MS     20
@@ -127,6 +128,14 @@ int64_t lh_now(void)
 bool lh_post(const lh_ev_t *ev)
 {
     return s_q && xQueueSend(s_q, ev, 0) == pdTRUE;
+}
+
+// What others send (mesh messages, 30 a second from one peer from 2.5.0)
+// leaves the last LH_QUEUE_KEYS slots to the keys: a lost press is a missed
+// key, a lost release a key that stays down.
+bool lh_post_lossy(const lh_ev_t *ev)
+{
+    return s_q && uxQueueSpacesAvailable(s_q) > LH_QUEUE_KEYS && xQueueSend(s_q, ev, 0) == pdTRUE;
 }
 
 bool lh_post_to(lh_t *s, const lh_ev_t *ev)
@@ -236,7 +245,10 @@ static void step_hook(lua_State *L, lua_Debug *ar)
     // A service (2.3.0) also has a second of wall-clock time per callback:
     // work a VM instruction starts in C (string.rep of a big string, a long
     // concatenation) isn't counted as instructions.
-    if (s->steps > s->steps_max || (s->svc && lh_now() - s->cb_t0 > LH_SVC_CALLBACK_MS)) {
+    // The main chunk's bigger budget (2.5.0) also has a time limit: work
+    // charged in C (crypto, files) costs more time per step than the VM.
+    if (s->steps > s->steps_max || (s->svc && lh_now() - s->cb_t0 > LH_SVC_CALLBACK_MS) ||
+        (s->booting && lh_now() - s->cb_t0 > LH_BOOT_MS)) {
         over_budget(L, 0);      // level 0: the script line running now
     }
 }
@@ -246,7 +258,7 @@ void lh_charge_steps(lua_State *L, unsigned int n)
 {
     lh_t *s = lh_get(L);
     s->steps += n;
-    if (s->steps > s->steps_max) {
+    if (s->steps > s->steps_max || (s->booting && lh_now() - s->cb_t0 > LH_BOOT_MS)) {
         over_budget(L, 1);      // level 1: the line that called string.find & co.
     }
 }
@@ -501,12 +513,32 @@ static int l_print(lua_State *L)
     return 0;
 }
 
+// collectgarbage: "count" as in Lua; what ported code asks of the collector
+// ("collect", "step", "stop", "restart", modes) does nothing (2.5.0: an error
+// before, met only on a badge): the host runs the collector, and a full
+// collection of a 6 MB heap in one call would cost time no budget counts.
 static int l_collectgarbage(lua_State *L)
 {
-    const char *opt = luaL_optstring(L, 1, "collect");
-    luaL_argcheck(L, !strcmp(opt, "count"), 1, "only \"count\" is available");
-    lua_pushnumber(L, (lua_Number)lua_gc(L, LUA_GCCOUNT) + (lua_Number)lua_gc(L, LUA_GCCOUNTB) / 1024);
-    return 1;
+    static const char *const opts[] = {"count", "collect", "step", "stop", "restart", "isrunning",
+                                       "incremental", "generational", NULL};
+    switch (luaL_checkoption(L, 1, "collect", opts)) {
+    case 0:
+        lua_pushnumber(L, (lua_Number)lua_gc(L, LUA_GCCOUNT) + (lua_Number)lua_gc(L, LUA_GCCOUNTB) / 1024);
+        return 1;
+    case 2:
+        lua_pushboolean(L, 0);              // no cycle finished
+        return 1;
+    case 5:
+        lua_pushboolean(L, 1);
+        return 1;
+    case 6:
+    case 7:
+        lua_pushliteral(L, "generational"); // the mode it was, and stays
+        return 1;
+    default:
+        lua_pushinteger(L, 0);
+        return 1;
+    }
 }
 
 static int boot(lua_State *L)
@@ -610,9 +642,24 @@ static int key_cb(lua_State *L)
 {
     lh_ev_t *ev = lua_touserdata(L, 1);
     lh_t *s = lh_get(L);
+    uint8_t bit = (uint8_t)(1u << ev->key);
+    if (ev->up) {
+        // Only a press on_key got (not one a dialog or a list took).
+        if (s->keys_down & bit) {
+            s->keys_down &= (uint8_t)~bit;
+            lua_getglobal(L, "on_key_up");
+            if (lua_isfunction(L, -1)) {
+                lua_pushstring(L, s_key_names[ev->key]);
+                lua_pushinteger(L, (lua_Integer)ev->ms);
+                lua_call(L, 2, 0);
+            }
+        }
+        return 0;
+    }
     if (lh_ui_key(L, s, ev->key, ev->repeat)) {
         return 0;
     }
+    s->keys_down |= bit;
     bool handled = false;
     lua_getglobal(L, "on_key");
     if (lua_isfunction(L, -1)) {
@@ -685,6 +732,9 @@ static void run_events(lh_t *s, const lh_ev_t *ev)
     }
     if (s->L && !s->failed) {
         lh_anims_run(s);
+    }
+    if (s->L && !s->failed) {
+        lh_img_flush(s);
     }
     if (s->exit_req && !s->failed) {
         s->exit_req = false;
@@ -863,7 +913,15 @@ static void lua_task(void *arg)
             fail(s, rc, NULL);
         } else {
             s->next_tick = lh_now() + s->tick_ms;
+            // A Lua app's main chunk loads at the top of main.lua; a C app's
+            // launch has its own budget (2 000 000 wasm instructions) and the
+            // usual host steps.
+            s->booting = s->pkg.lang != LUA_PKG_LANG_C;
+            s->steps_max = s->booting ? LUA_HOST_STEPS_BOOT : LUA_HOST_STEPS_MAX;
+            s->cb_t0 = lh_now();
             lh_callback(s, run_main, NULL);
+            s->booting = false;
+            s->steps_max = LUA_HOST_STEPS_MAX;
             if (s->L && !s->failed) {
                 lh_mail_opened(s);      // opened from Mailbox on a message: on_mail gets it
             }
@@ -1017,6 +1075,16 @@ static bool host_key(os_key_t key, bool repeat)
     return true;
 }
 
+static void host_key_up(os_key_t key, uint32_t held_ms)
+{
+    lh_t *s = lh_cur;
+    if (!s || s->failed || s->finished || key < 0 || key > OS_KEY_BACK) {
+        return;
+    }
+    lh_ev_t ev = { .kind = LH_EV_KEY, .key = key, .up = true, .ms = held_ms, .gen = s->gen };
+    lh_post(&ev);
+}
+
 const os_app_t lua_host_app = {
     .id = "lua",
     .name = s_title,
@@ -1025,6 +1093,7 @@ const os_app_t lua_host_app = {
     .on_enter = host_enter,
     .on_exit = host_exit,
     .on_key = host_key,
+    .on_key_up = host_key_up,
 };
 
 bool lua_host_launch(const char *id)

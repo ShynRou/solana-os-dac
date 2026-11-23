@@ -6,6 +6,78 @@ update only to a newer one. Dates are commit dates. The contracts these builds
 implement (`docs/LUA_API.md`, `docs/MESH.md`, `server/API.md`) and the server and
 site changes that came with them live in the parent repository.
 
+## 2.5.0 (unreleased)
+
+For real-time games, from an app author's list: canvas drawing that redraws only what
+changed, sprite sheets and turned sprites, frames for Lua, key releases, a WebSocket that
+answers in milliseconds, a faster mesh between two badges, and fewer surprises when
+porting Lua.
+
+### Display
+
+- **A canvas redraws only what changed.** Every `c:pixel`, `c:rect`, `c:line`, `c:image`
+  (and a C app's `ui_canvas_blit`) used to invalidate the whole canvas, so 2.1.0's
+  dirty-area merging never helped a canvas game. Drawing now marks up to four rectangles
+  per canvas (touching ones merged, a fifth into the one it grows least) and the Lua task
+  hands them to LVGL once per event (`lh_img_flush`, after the event's callbacks), so a
+  thousand `c:pixel` calls are one area and one moved sprite redraws its own rows.
+  `c:clear()` still redraws everything.
+- **`c:image` takes a part of the image and turns it**: `c:image(src, x, y, sx, sy, sw, sh
+  [, opts])` stamps the `sw` x `sh` part at (`sx`, `sy`) (a sprite sheet's cell, a big map's
+  view); `opts.flip_x` / `opts.flip_y` mirror it and `opts.rotate` (0, 90, 180, 270) turns
+  it clockwise, with no copy, so one image serves every direction a sprite faces. A part
+  outside the image is an error.
+- **`ui.frame(src, x, y [, scale])`** for Lua: a canvas (hidden), an image object or a
+  `ui.load` image straight to the panel past LVGL, through C apps' `bsp_display_frame`
+  (converted, never read in place, so the app's pixels can go at once). Same rules as
+  `ui_frame`: inside the app area or an error, `false` under a dialog, a toast keeps its
+  rows, LVGL paints over it where it redraws.
+
+### Input
+
+- **`on_key_up(key, ms)`** (Lua) and the `on_key_up` export (C, `badge_abi.h`): a key whose
+  press the app got was let go, `ms` after it went down. The OS keeps which presses went
+  to the app (`os_app_t.on_key_up`, `core/os.c`): never HOME, never one the OS's confirm
+  or a panel took, none after an app switch; the Lua host drops releases of presses a
+  dialog or a focused list took. Console keys are a press and its release.
+
+### Networking
+
+- **The radio stays awake while a Lua app's WebSocket is open** (`os_mesh_awake_hold`, held
+  by `os_socket` for the life of the connection; `awake_apply` now decides and tells the
+  radio under one mutex, since two tasks call it): with modem sleep the AP held the host's
+  packets until the badge's next wake, and a real-time game measured 750 to 2 500 ms round
+  trips.
+- **No Nagle on the socket, one write per frame** (`os_ws.c`): `TCP_NODELAY`, and header
+  and payload go out as one TLS record (two writes left the payload waiting for the host's
+  delayed ACK). The cloud task waits at most 10 ms for the host between sends (50 before),
+  so a send leaves within ~10 ms.
+- **`sock:queued()`**: messages sent but not gone out yet, the one being written included
+  (`os_socket_queued`), so an app can skip a stale state update.
+- **`mesh.send` to badges over the radio: 30 a second in all** (`LH_MESH_TO_PER_S`;
+  broadcasts and bridged badges share the old 4, decided as `os_mesh_send` routes them,
+  `os_mesh_bridged`; the parent repo's docs/MESH.md §6), so two badges in a room can play
+  straight over ESP-NOW. Mesh messages no longer take the Lua queue's last 4 slots
+  (`lh_post_lossy`), which stay for key presses and releases.
+
+### Lua
+
+- **`collectgarbage`**: `"collect"`, `"step"`, `"stop"`, `"restart"`, `"incremental"`,
+  `"generational"` do nothing and `"isrunning"` is true, instead of a script error ported
+  code met only on a badge; `"count"` as before.
+- **A Lua app's main chunk gets 2 000 000 instructions** (`LUA_HOST_STEPS_BOOT`, 10x a
+  callback's) and at most 1.5 s (`LH_BOOT_MS`: charged C work takes longer per step), so
+  loading at the top of `main.lua` needs no spreading over ticks; C apps keep their own; **`sys.budget()`** says
+  what a callback has left.
+- **Clearer image errors**: `ui.load("")` says the path is empty; pixel art whose rows are
+  all empty, or that has no rows, says so (it said "pixel art rows are 1 to 1024
+  characters").
+
+### Docs
+
+- `docs/LUA_API.md` "The web emulator": what differs from a badge (speed, memory, radios,
+  hardware, updates); the site's `/emulator` states the version it runs.
+
 ## 2.4.0 (unreleased)
 
 Gossip, the event game on the badge mesh (the parent repo's docs/GOSSIP.md), run by the

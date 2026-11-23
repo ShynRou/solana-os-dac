@@ -947,7 +947,7 @@ void lh_open_ui(lua_State *L)
     static const luaL_Reg fns[] = {
         {"label", l_label}, {"rect", l_rect}, {"bar", l_bar}, {"gradient", l_gradient}, {"list", l_list},
         {"qr", l_qr}, {"load", lh_ui_load}, {"image", lh_ui_image}, {"canvas", lh_ui_canvas}, {"anim", lh_ui_anim},
-        {"bg", l_bg}, {"hint", l_hint}, {"toast", l_toast}, {"confirm", l_confirm}, {"input", l_input},
+        {"frame", lh_ui_frame}, {"bg", l_bg}, {"hint", l_hint}, {"toast", l_toast}, {"confirm", l_confirm}, {"input", l_input},
         {"clear", l_clear}, {NULL, NULL},
     };
     lh_t *s = lh_get(L);

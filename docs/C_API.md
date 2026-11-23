@@ -519,6 +519,7 @@ constructors), then these exports when they are defined. Only `on_start` is requ
 ```c
 void on_start(void);                      // once, at launch: build the UI here
 int32_t on_key(int32_t key, int32_t repeat); // KEY_UP ... KEY_BACK; return 1 if handled
+void on_key_up(int32_t key, int32_t ms);  // that key was let go, ms after its press (2.5.0)
 void on_tick(int32_t ms);                 // every 30 ms; ms since the last tick
 void on_mesh(void);                       // a message from this app on another badge ("mesh")
 int32_t on_meet(void);                    // another badge asks for a meet ("mesh")
@@ -538,6 +539,9 @@ with the same timing and rules:
   `KEY_SELECT` or `KEY_BACK` (CANCEL), `repeat` 1 for an auto-repeat. Return 0 for
   `KEY_BACK` to exit. HOME always returns to the launcher and never reaches the app. A
   focused list, `ui_confirm` or `ui_input` takes the keys it uses first.
+- `on_key_up(key, ms)` (Solana OS 2.5.0): a key whose press `on_key` got was let go, `ms`
+  after it went down: tap or hold without timing it. Never for HOME or a press a dialog or
+  list took; older badges never call it.
 - `on_tick(ms)`: move things by `ms`, never by counting ticks. For several keys at once
   read `sys_keys()` here (`KEY_HELD(sys_keys(), KEY_LEFT)`).
 - `on_mesh()`: the sender's badge id and the message are its arguments on the stack:

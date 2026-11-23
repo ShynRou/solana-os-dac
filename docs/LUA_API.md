@@ -109,6 +109,8 @@ calls these globals if you define them:
 function on_key(key, rep)    -- "up" "down" "left" "right" "select" "back"; rep = auto-repeat
   return true                -- handled. Returning false/nil for "back" exits the app.
 end
+function on_key_up(key, ms)  -- that key was let go, ms after it went down (2.5.0)
+end
 function on_tick(ms)         -- every 30 ms (50 ms before 2.1.0): move things by ms,
 end                          -- the time since the last tick, never by counting ticks
 function on_mesh(from, msg)  -- a message from the same app on another badge (needs "mesh")
@@ -129,8 +131,15 @@ closes: `service.lua`, a separate script with its own callbacks (see
 
 Up, down, left, right and CANCEL auto-repeat while held (`rep` true: after 400 ms, then
 every 90 ms); SELECT doesn't. One key repeats at a time, the last one pressed; when it's
-released, another direction still held takes over (0.5.11). `on_key` has no release event:
-for games that need several keys at once (diagonals, hold to charge), read `sys.keys()` in
+released, another direction still held takes over (0.5.11).
+
+`on_key_up(key, ms)` (Solana OS 2.5.0) comes once when a key whose press `on_key` got is let
+go, with how long it was held: tap or hold without timing it yourself (`ms < 250` a tap).
+It never comes for HOME, nor for a press that a dialog (`ui.confirm`, `ui.input`, the
+badge's own) or a focused `ui.list` took. An app that closes on CANCEL usually gets no
+release for it (only one let go before the app has closed). Keys typed on the console (`key select`) are a press and its release at once (`ms` 0).
+Older badges never call it, so an app that needs it to work everywhere also reads
+`sys.keys()`. For several keys at once (diagonals, hold to charge), read `sys.keys()` in
 `on_tick`.
 
 HOME always returns to the launcher. The screen below the status bar is
@@ -141,7 +150,7 @@ HOME always returns to the launcher. The screen below the status bar is
 | | |
 |---|---|
 | Memory | 6 MB of Lua heap, in the badge's 8 MB of PSRAM (Solana OS 2.0.0). Past it the app stops with "Out of memory: The app needs more than 6 MB." The badge keeps 512 KB of PSRAM for itself while an app runs, and the allocator's own overhead (up to about a quarter for very many small tables or strings) comes out of the rest, so an app made of millions of tiny objects can be stopped a little earlier with "The badge is low on memory". The app's UI objects, label text and 12 KB task stack are in the badge's other memory, capped by the rows below, not in the 6 MB, and Bluetooth no longer shrinks it. `sys.memory()` tells an app where it stands. Badges below 2.0.0 (until they update) give 96 KB (48 KB below 0.5.13), shared with Wi-Fi, TLS and Bluetooth: there an app with 60 labels gets about 80 KB with Wi-Fi joined, about 49 KB with Bluetooth on as well. A store app's compiled code runs from flash and mostly isn't in it; a library function takes a few bytes once the app first uses it. A big heap is a slower one: PSRAM is slower than the chip's own memory, and the collector walks everything an app keeps, so a few MB of live tables can pause a callback noticeably |
-| CPU | 200 000 VM instructions per callback, coroutines and pattern matching included (else "Script took too long") |
+| CPU | 200 000 VM instructions per callback, coroutines and pattern matching included (else "Script took too long"). The main chunk, run once at launch, gets 2 000 000 (2.5.0: about 0.7 s of Lua on a badge), so loading PNGs and building tables there needs no spreading over ticks; `sys.budget()` says how much a callback has left |
 | UI objects | 128 at a time (64 below 2.0.0), one of them a QR code. They live in the badge's SRAM, not the Lua heap: a call that makes one (`ui.label`, `ui.list`, `ui.image`, …) raises "ui.list: the badge is low on memory" (with its own name) when it would leave the badge less than 32 KB, a catchable error (2.0.1). So does a call that makes what they hold grow (2.1.0): `label:text` with longer text, `ui.hint`, `ui.toast`, `qr:text`, and `ui.confirm` and `ui.input` for their text. The 32 KB are SRAM that the badge can still allocate, not counting the 32 KB set aside for DMA (2.0.1 counted those, so its check left the badge almost nothing), and each list, the keyboard and the first image keep a little more for what they redraw on their own (a list's rows, about 1.3 KB). A `ui.list` costs about 12 KB of it, a label about 250 bytes. Measured on 2.1.0 with Wi-Fi off: 60 labels and six lists, or 128 labels; Wi-Fi joined and Bluetooth on leave less |
 | Images | 2 bytes per pixel of the app's heap (a 48 × 48 PNG: 4.5 KB); up to 1024 pixels a side, shown at up to 16×. The first `ui.anim` reserves 13 KB more for decoding |
 | Text | 200 bytes per label (longer text ends in "..."), 12 KB of label text on screen (6 KB below 2.0.0) |
@@ -149,7 +158,7 @@ HOME always returns to the launcher. The screen below the status bar is
 | Storage | 16 KB per app (`storage.*`) |
 | Files | 64 bundled files, ≤ 256 KB each, ≤ 1 MB together, read-only (`fs`, `require`) |
 | Reads | ≤ 256 KB per `fs.read` and `fs.json`, so any bundled file in one read (16 KB below 2.0.0), lines ≤ 512 bytes. Card reads count toward the instruction budget: 500 per file opened or looked up (`fs.exists`, `fs.size`, `fs.list`), 1 per 4 bytes read or compiled |
-| Mesh | 4 messages per second, ≤ 200 bytes each. Meets: one asked and one accepted a second, ≤ 100 bytes of data a side, 300 per badge a day, 40 waiting to upload |
+| Mesh | 30 messages a second in all to badges heard over the radio, and 4 a second for broadcasts and bridged badges together (2.5.0; 4 for everything below), ≤ 200 bytes each. Meets: one asked and one accepted a second, ≤ 100 bytes of data a side, 300 per badge a day, 40 waiting to upload |
 | Bluetooth | one connection at a time, ≤ 244 bytes per read, write or notification, 4 waiting for an answer; a served service has ≤ 4 characteristics; an advertisement carries ≤ 24 bytes of app data; about 30 KB of the badge's own memory while it is on (not of the app's heap from 2.0.0) |
 | HTTP | 60 requests a minute per badge, ≤ 2 KB sent, ≤ about 3.5 KB of answer, 6 s to answer |
 | RPC | 30 calls a minute per badge (6 of them `sendTransaction`), ≤ 2 KB of params, ≤ about 3.5 KB of answer, 6 s to answer |
@@ -193,7 +202,10 @@ rawequal rawget rawlen rawset _G _VERSION`, `string.*` (no `string.dump`), `tabl
 (with 5.5's `table.create`), `math.*` (with `math.random` seeded per launch), `utf8.*`,
 `coroutine.*`, and `require` for the app's own modules (see `fs`). Removed: `io`, `os`,
 `debug`, `package`, `load`/`loadfile`/`dofile` (`fs.load` compiles the app's own files),
-`warn`, `collectgarbage` (except `collectgarbage("count")`).
+`warn`. `collectgarbage("count")` gives the heap in KB; the badge runs the collector itself,
+so `"collect"`, `"step"`, `"stop"`, `"restart"`, `"incremental"` and `"generational"` do
+nothing and `"isrunning"` is true (Solana OS 2.5.0; an error before, so ported code that
+calls `collectgarbage()` needs 2.5.0 or a `pcall`).
 
 What 5.5 changes for a 5.4 script: a `for` loop's variable is read-only (`for i = 1, 3
 do i = i + 1 end` doesn't compile; copy it into a local), and `global x` declares a
@@ -275,6 +287,9 @@ c:pixel(x, y, "green")
 c:rect(x, y, w, h, 0xFF754A)  -- filled
 c:line(x1, y1, x2, y2, "aqua")
 c:image(ship, x, y)           -- stamp an image (or a path, or rows); its see-through pixels leave the canvas as it was
+c:image(sheet, x, y, sx, sy, sw, sh)                -- only its sw x sh part at (sx, sy): a sprite sheet's cell (2.5.0)
+c:image(ship, x, y, {rotate = 90, flip_x = true})   -- mirrored, then turned clockwise (0, 90, 180, 270; 2.5.0)
+c:image(sheet, x, y, sx, sy, sw, sh, {flip_y = true})
 c:get(x, y)                   -- 0xRRGGBB, or nil where it's see-through or outside
 c:pos(x, y)  c:show(b)  c:remove()
 
@@ -282,6 +297,9 @@ local dance = ui.anim(100, 40, "dance.gif", {scale = 2})   -- an animated GIF, p
 local once = ui.anim(0, 0, "intro.gif", {loop = false})     -- loop: true, false, or a number of times
 dance:stop()  dance:play()  dance:playing()   -- play() after the end starts over
 dance:scale(3)  dance:pos(x, y)  dance:show(b)  dance:remove()
+
+ui.frame(c, 0, 0)             -- a canvas (or image, or ui.load image) straight to the screen, past the UI (2.5.0)
+ui.frame(ship, 40, 40, 2)     -- at 2x; true when shown, false while a dialog is over the app
 ```
 
 - **Sources.** Anywhere an image goes (`ui.image`, `image:set`, `ui.load`, `c:image`):
@@ -320,7 +338,30 @@ dance:scale(3)  dance:pos(x, y)  dance:show(b)  dance:remove()
   loaded; they don't follow a later theme change.
 - **Drawing** off the canvas is clipped, not an error. Every pixel written costs
   instructions (1 per 16), so redrawing a whole 80 × 54 canvas each `on_tick` is
-  fine; the canvas redraws on screen after the callback. Images and canvases are UI
+  fine; the canvas redraws on screen after the callback, and only where it changed
+  (2.5.0: up to four rectangles a canvas, merged as needed; before, every drawing call
+  redrew the whole canvas), so a sprite moving on a big canvas costs its own few rows.
+  `c:clear()` redraws everything.
+- **Parts, mirrors and turns** (2.5.0). `c:image(src, x, y, sx, sy, sw, sh)` stamps the
+  `sw` × `sh` part of `src` whose top-left is (`sx`, `sy`): one sprite sheet or one big
+  map, no cutting into separate images. A part outside the image is an error. Options
+  after it (or after `y` without a part): `flip_x` mirrors left to right, `flip_y` top to
+  bottom, then `rotate` turns the result clockwise by 0, 90, 180 or 270; (`x`, `y`) is
+  the top-left of what is drawn, `sh` × `sw` for a quarter turn. No copy is made, so
+  one image serves every direction a sprite faces. A badge below 2.5.0 ignores the part
+  and the options and stamps the whole image, without an error: check `if ui.frame then`
+  (new in the same release) before relying on them.
+- **Frames** (`ui.frame`, 2.5.0). Sends pixels to the screen straight away, past the UI
+  objects, by the path C apps' `ui_frame` takes: a scrolling game that redraws its whole
+  area each tick skips the UI's own drawing and blending (not yet timed on a badge for
+  Lua). Give it a canvas (hide
+  it with `c:show(false)` so it isn't drawn twice), an image object or a `ui.load`
+  image, its top-left and a scale (default the object's, else 1). The frame must fit
+  inside the app area (`ui.W` × `ui.H`), or it's an error. It's opaque: see-through
+  pixels show black. It returns `false`, drawing nothing, while a dialog, the keyboard
+  or the badge's own panel is over the app; a toast keeps its rows. The UI paints over
+  it wherever it redraws (a label changing, a toast going), so keep other objects off
+  the part of the screen the frame covers. It costs 1 instruction per 16 pixels shown. Images and canvases are UI
   objects (the 128), drawn in the order made, so a label made after a canvas sits on
   top of it. So are animations.
 
@@ -353,6 +394,7 @@ sys.battery()               -- percent, or nil on USB / unknown; the status bar'
 sys.keys()                  -- the keys held now, e.g. { up = true, left = true } (0.5.11)
 sys.memory()                -- { used = 18773, max = 6291456 }: the app's Lua heap in bytes (2.0.0)
 sys.tick(16)                -- on_tick every 16 ms from now on (16..1000; 30 by default); returns the old period (2.3.0)
+sys.budget()                -- instructions this callback has left, to the nearest 1 000 (2.5.0)
 sys.exit()                  -- close the app
 badge.id()                  -- "7K2Q9M", or nil before the first hello
 badge.owner()               -- "@toly", or nil while unclaimed
@@ -372,6 +414,11 @@ scheduler otherwise sleeps in 10 ms steps, so 16 would come out as 20). A tick s
 only after the last callback ended: when the app's callbacks take longer than the period,
 ticks come as fast as they can, and `ms` says how long it really was. The budgets per
 callback don't change ("Limits").
+
+`sys.budget()` (Solana OS 2.5.0) is what the current callback may still run before "Script
+took too long" (see "Limits"; the main chunk also stops after 1.5 s, since work done
+in C, such as `crypto.verify` or reading files, takes longer per instruction): work spread over ticks (decoding images, building a level)
+can do as much as fits and carry on next time, `while sys.budget() > 20000 do ... end`.
 
 `sys.keys()` names `up`, `down`, `left`, `right`, `select` and `back` (CANCEL), never HOME,
 and is empty while a dialog has the keys (your `ui.confirm` or `ui.input`, or the badge's own
@@ -498,7 +545,8 @@ Opening an app with `mesh` puts the radio on the mesh channel while it runs.
 
 ```lua
 mesh.nearby()               -- { {id="7K2Q9M", name="@toly", level=12, rssi=-48, kind="badge", bridged=false}, ... }
-mesh.send(to, msg)          -- to = badge id or "*"; msg = table (≤ 200 bytes as JSON)
+mesh.send(to, msg)          -- to = badge id or "*"; msg = table (≤ 200 bytes as JSON): true, or nil and why
+--   30 a second in all to badges over the radio (2.5.0); broadcasts and bridged badges 4 a second together
 -- received by on_mesh(from_id, msg) on badges running the same app
 mesh.bridge()               -- show this badge's bridge code over the app (CANCEL closes it)
 mesh.meet(id, data, cb)     -- a meet both badges sign, for your server to trust ("Meets", 0.5.15)
@@ -1366,6 +1414,7 @@ local sock = ws.open(url, {protocols = {"chat.v1"}}, cb)
 sock:send(text)                     -- or a table, sent as JSON: true, or nil and why not
 sock:close()                        -- cb("close", "closed") follows
 sock:state()                        -- "connecting", "open" or "closed"
+sock:queued()                       -- messages sent but not gone out yet, the one being written included (2.5.0)
 ```
 
 **Opening.** `url` is `wss://` on port 443 (no other port, no `user:password@`), ≤ 512
@@ -1386,6 +1435,15 @@ arrives as a string (a binary message too, byte for byte); one over 4 KB closes 
 socket with `"too big"`. Messages are delivered between callbacks like everything else,
 and the badge stops reading from the host while 8 wait for the app, so a fast host is
 slowed down, not dropped.
+
+**Real time** (Solana OS 2.5.0). While a socket is open the radio stays awake: with the
+power saving it uses otherwise, the access point holds the host's packets until the
+badge's next wake, and round trips measured 750 to 2 500 ms. Each message goes out as one
+TCP segment with Nagle's algorithm off, at most about 10 ms after `sock:send` (50 before).
+Keeping the radio awake costs battery: close the socket when the game is over.
+`sock:queued()` says how many messages still wait to go out, so a game sending its state
+each tick can skip a tick instead of queueing a stale one:
+`if sock:queued() < 2 then sock:send(state) end`.
 
 **Closing.** Every socket ends with one `cb("close", reason, code)`; `code` is the
 host's close code when the host closed it (1000 normal, 1001 going away, ...), else
@@ -2555,6 +2613,29 @@ end
   Each update is a new version; the badge offers it as an update and downloads only
   the files that changed. Once it's published, everyone's badge checks `http`, `ws` and
   `rpc` against the published version's permissions and hosts.
+
+## The web emulator
+
+The site's `/emulator` (and Try in emulator) runs the badge's own Solana OS built for the
+browser, the version the page names, from the same source files: the apps, the Lua host
+and its limits are a badge's. What differs:
+
+- **Speed.** It runs on your computer: Lua, C apps (always interpreted; the store's native
+  code runs only on a badge), drawing and frames are faster or slower than on a badge, and
+  timings measured there don't carry over. The instruction budgets are the same counts.
+  Tasks take turns (a task that never waits freezes the page), and a background tab runs
+  about once a second.
+- **Memory.** The same caps (the emulator acts as a badge with 8 MB of PSRAM), but the
+  badge's other memory (SRAM: UI objects, label text, the TLS connection) is the browser's
+  and doesn't run short the way a badge's does. Check `heap` and `lua mem` on a badge.
+- **Radios.** No radio: the mesh (`mesh`) and Bluetooth (`ble`) reach other emulated
+  badges in tabs of the same browser, and a real badge only over a bridge (see "Bridged
+  badges"). Wi-Fi is one open network, "Emulator Guest", that always joins. `ws` is the browser's
+  WebSocket: no memory limit, and a failed connection is always `"unreachable"`.
+- **Hardware.** The microSD card is 64 MB in memory, always there; the battery is a slow
+  fake drain; LEDs and the screen are drawn by the page; settings stay in the browser.
+- **Updates.** It runs the build the site was built with: `/emulator` reloads when a newer
+  one is published (an embedded one asks you to reload), instead of updating over the air.
 
 ## Console (development)
 

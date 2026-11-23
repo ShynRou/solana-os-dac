@@ -16,6 +16,7 @@
 // check them again from here, where a rebinding answer or the network's own
 // DNS could point a store app at the network the badge is on.
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -108,7 +109,11 @@ static bool wr_all(const char *buf, size_t n)
     return true;
 }
 
-// One frame, masked as a client must (in place, restored after).
+// One frame, masked as a client must. Header and payload go in one write, so
+// one TLS record and one TCP segment (2.5.0): two writes left the payload
+// behind Nagle until the host acknowledged the header, a delayed ACK of up to
+// ~200 ms per message. With no room for the copy, in place and two writes.
+#define FRAME_STACK     160             // the cloud task has 6 KB of stack, TLS writes under it
 static bool send_frame(int op, char *data, size_t len)
 {
     uint8_t h[8];
@@ -124,6 +129,19 @@ static bool send_frame(int op, char *data, size_t len)
     uint8_t *mask = h + hl;
     esp_fill_random(mask, 4);
     hl += 4;
+    char stack[FRAME_STACK];
+    char *buf = hl + len <= sizeof(stack) ? stack : malloc(hl + len);
+    if (buf) {
+        memcpy(buf, h, hl);
+        for (size_t i = 0; i < len; i++) {
+            buf[hl + i] = (char)(data[i] ^ mask[i % 4]);
+        }
+        bool ok = wr_all(buf, hl + len);
+        if (buf != stack) {
+            free(buf);
+        }
+        return ok;
+    }
     for (size_t i = 0; i < len; i++) {
         data[i] ^= mask[i % 4];
     }
@@ -316,6 +334,11 @@ esp_err_t os_ws_connect(const char *url, const char *protocols)
             ESP_LOGW(TAG, "%s: no TLS connection", host);
             err = ESP_FAIL;
         } else {
+            // Small messages both ways, each wanted now (2.5.0): no Nagle.
+            int fd = esp_transport_get_socket(s_tls), one = 1;
+            if (fd >= 0 && setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) != 0) {
+                ESP_LOGW(TAG, "TCP_NODELAY: %d", errno);
+            }
             err = upgrade(host, path, protocols && protocols[0] ? protocols : NULL);
         }
     }

@@ -274,6 +274,16 @@ static int l_memory(lua_State *L)
     return 1;
 }
 
+// sys.budget() (2.5.0): instructions this callback has left, to the nearest
+// thousand (the count is checked every 1 000), so work spread over ticks
+// (loading, building tables) can do as much as fits and carry on next time.
+static int l_budget(lua_State *L)
+{
+    lh_t *s = lh_get(L);
+    lua_pushinteger(L, s->steps < s->steps_max ? (lua_Integer)(s->steps_max - s->steps) : 0);
+    return 1;
+}
+
 // The keys held right now, as a set: { up = true, left = true }. Raw buttons through
 // the calibrated map; empty while a dialog has the keys: the app's own ui.confirm or
 // ui.input, or the OS's (a confirm, the bridge panel).
@@ -760,6 +770,7 @@ void lh_open_sys(lua_State *L)
     static const luaL_Reg timer[] = {{"after", l_after}, {"every", l_every}, {"cancel", l_cancel}, {NULL, NULL}};
     static const luaL_Reg sys[] = {
         {"millis", l_millis}, {"time", l_time}, {"battery", l_battery}, {"keys", l_keys}, {"memory", l_memory},
+        {"budget", l_budget},
         {"exit", l_exit}, {"tick", l_tick}, {NULL, NULL},
     };
     static const luaL_Reg badge[] = {

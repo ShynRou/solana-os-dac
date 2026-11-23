@@ -65,7 +65,7 @@ typedef struct lw {
     NativeSymbol *natives;          // the import tables WAMR holds (and sorts) while it runs
     uint32_t n_natives;
     // Exports the host calls (NULL: the app didn't define it)
-    wasm_function_inst_t f_start, f_key, f_tick, f_exit, f_mesh, f_meet, f_mail;
+    wasm_function_inst_t f_start, f_key, f_tick, f_exit, f_mesh, f_meet, f_mail, f_key_up;
 } lw_t;
 
 // The running C app or C service (one at a time: one WebAssembly runtime
