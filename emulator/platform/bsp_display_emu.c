@@ -91,7 +91,8 @@ static uint16_t s_stage[BOARD_LCD_H_RES * BOARD_LCD_V_RES];
 static int s_fx, s_fy, s_fw, s_fh;
 static int64_t s_frame_us;              // when the last frame was drawn
 
-esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x, int y, int dw, int dh, bool be)
+esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x, int y, int dw, int dh, bool be,
+                            bool clear)
 {
     if (!s_disp || !px || w <= 0 || h <= 0 || dw <= 0 || dh <= 0 || stride < w) {
         return ESP_ERR_INVALID_ARG;
@@ -111,6 +112,9 @@ esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x,
             uint16_t c = row[(int64_t)(x0 - x + i) * w / dw];
             if (be) {
                 c = (uint16_t)(c << 8 | c >> 8);
+            }
+            if (clear && c == BSP_FRAME_CLEAR) {
+                c = 0;
             }
             s_stage[j * cw + i] = (uint16_t)(c << 8 | c >> 8);
             uint32_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;

@@ -749,6 +749,27 @@ static void run_events(lh_t *s, const lh_ev_t *ev)
 static esp_timer_handle_t s_wake;
 static volatile uint32_t s_wake_gen;
 
+// Releases host_key_up couldn't queue (the queue full of mesh messages and
+// services' events): a lost release is a key that stays down in a game. They
+// run once the queue is empty, so after every event queued before them, the
+// press included.
+static void run_waiting_ups(lh_t *s)
+{
+    xSemaphoreTake(lh_mx, portMAX_DELAY);
+    uint8_t ups = s->ups_waiting;
+    uint32_t ms[OS_KEY_COUNT];
+    memcpy(ms, s->up_ms, sizeof(ms));
+    s->ups_waiting = 0;
+    xSemaphoreGive(lh_mx);
+    for (int k = 0; k < OS_KEY_COUNT && ups; k++) {
+        if ((ups & (1u << k)) && s->L && !s->failed && lock(s)) {
+            lh_ev_t ev = { .kind = LH_EV_KEY, .key = (os_key_t)k, .up = true, .ms = ms[k], .gen = s->gen };
+            run_events(s, &ev);
+            lvgl_port_unlock();
+        }
+    }
+}
+
 static void wake_fire(void *arg)
 {
     (void)arg;
@@ -958,6 +979,9 @@ static void lua_task(void *arg)
         if (got) {
             free(ev.data);
         }
+        if (s->ups_waiting && uxQueueMessagesWaiting(s_q) == 0) {
+            run_waiting_ups(s);
+        }
         if (s->L) {
             lh_storage_flush(s, false);
         }
@@ -1070,6 +1094,24 @@ static bool host_key(os_key_t key, bool repeat)
     if (!s || s->failed || s->finished) {
         return key != OS_KEY_BACK;      // error screen: CANCEL exits
     }
+    if (key <= OS_KEY_BACK) {
+        // A release still waiting for room goes first; if it can't, neither
+        // can this press, or the app would see it before the release.
+        xSemaphoreTake(lh_mx, portMAX_DELAY);
+        uint8_t bit = (uint8_t)(1u << key);
+        bool waiting = s->ups_waiting & bit;
+        if (waiting) {
+            lh_ev_t up = { .kind = LH_EV_KEY, .key = key, .up = true, .ms = s->up_ms[key], .gen = s->gen };
+            if (lh_post(&up)) {
+                s->ups_waiting &= (uint8_t)~bit;
+                waiting = false;
+            }
+        }
+        xSemaphoreGive(lh_mx);
+        if (waiting) {
+            return true;
+        }
+    }
     lh_ev_t ev = { .kind = LH_EV_KEY, .key = key, .repeat = repeat, .gen = s->gen };
     lh_post(&ev);
     return true;
@@ -1082,7 +1124,12 @@ static void host_key_up(os_key_t key, uint32_t held_ms)
         return;
     }
     lh_ev_t ev = { .kind = LH_EV_KEY, .key = key, .up = true, .ms = held_ms, .gen = s->gen };
-    lh_post(&ev);
+    if (!lh_post(&ev)) {
+        xSemaphoreTake(lh_mx, portMAX_DELAY);
+        s->up_ms[key] = held_ms;            // the Lua task runs it when the queue empties
+        s->ups_waiting |= (uint8_t)(1u << key);
+        xSemaphoreGive(lh_mx);
+    }
 }
 
 const os_app_t lua_host_app = {

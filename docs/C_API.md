@@ -862,7 +862,8 @@ whole destination must be inside the app area.
   (`tests/c/t-c-fstress`): at worst a frame could show wrong pixels until the next one.
 - **The UI on top**: while your `ui_confirm` or `ui_input`, the badge's own confirm, the
   keyboard or the bridge panel is open, `ui_frame` shows nothing and returns 0; while a
-  toast shows, only the rows above it are drawn. The UI also paints over the frame whenever
+  toast shows, only the rows above it are drawn, in the frame's own scale (whole steps of
+  `dh / gcd(h, dh)` rows; nothing when not one fits, 2.5.1). The UI also paints over the frame whenever
   it redraws something in that area (a label you put there, the toast going away): keep
   UI objects out of the frame's rectangle, and the next frame paints the area again.
   `ui_bg(COL_BLACK)` gives the UI's redraws the frame's background.

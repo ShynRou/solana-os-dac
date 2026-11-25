@@ -359,7 +359,8 @@ ui.frame(ship, 40, 40, 2)     -- at 2x; true when shown, false while a dialog is
   image, its top-left and a scale (default the object's, else 1). The frame must fit
   inside the app area (`ui.W` × `ui.H`), or it's an error. It's opaque: see-through
   pixels show black. It returns `false`, drawing nothing, while a dialog, the keyboard
-  or the badge's own panel is over the app; a toast keeps its rows. The UI paints over
+  or the badge's own panel is over the app; a toast keeps its rows (the frame's whole
+  scaled rows above it are drawn, at the same scale, from 2.5.1). The UI paints over
   it wherever it redraws (a label changing, a toast going), so keep other objects off
   the part of the screen the frame covers. It costs 1 instruction per 16 pixels shown. Images and canvases are UI
   objects (the 128), drawn in the order made, so a label made after a canvas sits on

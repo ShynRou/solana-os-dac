@@ -30,6 +30,8 @@
 #include "lua_png.h"
 #include "lua_priv.h"
 
+_Static_assert(LH_PX_CLEAR == BSP_FRAME_CLEAR, "ui.frame sends see-through pixels black through bsp_display_frame");
+
 #define IMG_META    "ui.img"
 #define SCALE_MAX   16
 #define SHOWN_MAX   4096            // px per side once scaled (lv_image_header_t's 16-bit stride)
@@ -1219,15 +1221,15 @@ int lh_ui_frame(lua_State *L)
     int sx = area.x1 + x, sy = area.y1 + y, h = p->h, dhh = dh;
     int t0, t1;
     if (os_toast_rows(&t0, &t1) && t0 < sy + dh && t1 >= sy) {
-        dhh = t0 - sy;                      // the rows above the toast
-        h = dhh > 0 ? (int)((int64_t)dhh * p->h / dh) : 0;
+        lh_frame_cut(p->h, dh, t0 - sy, &h, &dhh);      // the whole scaled rows above the toast
         if (h <= 0) {
             lua_pushboolean(L, 0);
             return 1;
         }
     }
     lh_charge_steps(L, (unsigned)(dw * dhh / PX_PER_STEP));
-    if (bsp_display_frame(p->px, p->w, p->w, h, sx, sy, dw, dhh, false) != ESP_OK) {
+    // LH_PX_CLEAR (see-through) is BSP_FRAME_CLEAR: it goes to the panel black.
+    if (bsp_display_frame(p->px, p->w, p->w, h, sx, sy, dw, dhh, false, true) != ESP_OK) {
         luaL_error(L, "ui.frame: not enough memory");
     }
     lua_pushboolean(L, 1);

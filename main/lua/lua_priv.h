@@ -241,6 +241,8 @@ typedef struct lh {
     void *gif_work;             // ui.anim's decoding table (lua_img.c), a userdata kept for the app's life
     bool img_dirty;             // a canvas changed: lh_img_flush tells LVGL (2.5.0)
     uint8_t keys_down;          // keys whose press on_key got, for on_key_up (bit per os_key_t)
+    uint8_t ups_waiting;        // releases the full queue refused (under lh_mx), bit per os_key_t
+    uint32_t up_ms[OS_KEY_COUNT];   // and how long each was held
     int key_refs[3];            // "title", "sub", "right": row lookups that never allocate
 
     // LEDs, shown at the end of each callback
@@ -352,6 +354,22 @@ uintptr_t lh_stack_low(void);
 // services' (bottom: the stack's lowest address, about). leave: it stopped.
 void lh_stack_enter(int slot, uintptr_t bottom);
 void lh_stack_leave(int slot);
+// A frame of src_h rows scaled to dst_h, cut to its first `rows` on screen (a
+// toast below them, ui.frame/sos_frame): *h source rows to *dh destination
+// rows in the frame's own ratio, so a cut doesn't stretch what is left. Whole
+// steps of the ratio only (dst_h/gcd rows each): *h 0 when not one fits.
+static inline void lh_frame_cut(int src_h, int dst_h, int rows, int *h, int *dh)
+{
+    int a = src_h, b = dst_h;
+    while (b) {
+        int t = a % b;
+        a = b;
+        b = t;
+    }
+    int unit = dst_h / a, steps = rows > 0 ? rows / unit : 0;
+    *h = steps * (src_h / a);
+    *dh = steps * unit;
+}
 bool lh_post(const lh_ev_t *ev);                // to the Lua task; false if full
 bool lh_post_lossy(const lh_ev_t *ev);          // the same, but never into the slots kept for keys
 bool lh_post_to(lh_t *s, const lh_ev_t *ev);    // to the task running s: the app's or its service's

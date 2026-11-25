@@ -1118,12 +1118,7 @@ static void n_frame(wasm_exec_env_t env, uint64_t *a)
     int sx = area.x1 + x, sy = area.y1 + y, h = fh, dhh = dh;
     int t0, t1;
     if (os_toast_rows(&t0, &t1) && t0 < sy + dh && t1 >= sy) {
-        dhh = t0 - sy;                      // the rows above the toast
-        if (dhh <= 0) {
-            RET_I32(0);
-            return;
-        }
-        h = (int)((int64_t)dhh * fh / dh);
+        lh_frame_cut(fh, dh, t0 - sy, &h, &dhh);        // the rows above the toast, unstretched
         if (h <= 0) {
             RET_I32(0);
             return;
@@ -1136,7 +1131,7 @@ static void n_frame(wasm_exec_env_t env, uint64_t *a)
     if (!lw_charge(w, direct ? (uint32_t)(fw * h) / LW_FRAME_DMA_STEP : (uint32_t)(dw * dhh) / LW_FRAME_PX_STEP)) {
         return;
     }
-    if (bsp_display_frame(px, fw, fw, h, sx, sy, dw, dhh, be) != ESP_OK) {
+    if (bsp_display_frame(px, fw, fw, h, sx, sy, dw, dhh, be, false) != ESP_OK) {
         lw_trap(w, LW_MEM, "not enough memory");
         return;
     }

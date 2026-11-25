@@ -294,7 +294,8 @@ int bsp_display_frame_direct(void)
     return s_direct;
 }
 
-esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x, int y, int dw, int dh, bool be)
+esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x, int y, int dw, int dh, bool be,
+                            bool clear)
 {
     if (!s_panel || !px || w <= 0 || h <= 0 || dw <= 0 || dh <= 0 || stride < w) {
         return ESP_ERR_INVALID_ARG;
@@ -311,7 +312,7 @@ esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x,
     size_t need = (bytes + FRAME_ALIGN - 1) & ~(size_t)(FRAME_ALIGN - 1);
     bool same = dw == w && dh == h;
     bsp_lcd_hold();                     // the last frame (or LVGL's flush) is done with the buffer
-    if (bsp_display_frame_no_copy(px, stride, w, h, x, y, dw, dh, be)) {
+    if (!clear && bsp_display_frame_no_copy(px, stride, w, h, x, y, dw, dh, be)) {
         // Sent from where it is: the cache written back, the DMA reads it.
         esp_cache_msync((void *)px, bytes, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
         s_direct = 1;
@@ -339,6 +340,8 @@ esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x,
             s_xmap[i] = (uint16_t)((int64_t)(x0 - x + i) * w / dw);
         }
     }
+    // The see-through marker as it sits in px (be: its bytes swapped).
+    uint16_t mark = be ? (uint16_t)(BSP_FRAME_CLEAR << 8) : BSP_FRAME_CLEAR;
     uint16_t *o = s_stage;
     for (int j = 0; j < ch; j++) {
         int sy = same ? y0 - y + j : (int)((int64_t)(y0 - y + j) * h / dh);
@@ -346,7 +349,12 @@ esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x,
         if (same) {
             row += x0 - x;
             int i = 0;
-            if (be) {
+            if (clear) {
+                for (; i < cw; i++) {
+                    uint16_t v = row[i] == mark ? 0 : row[i];
+                    o[i] = be ? v : swap16(v);
+                }
+            } else if (be) {
                 memcpy(o, row, (size_t)cw * 2);
                 i = cw;
             } else if (!((uintptr_t)row & 3) && !((uintptr_t)o & 3)) {
@@ -363,6 +371,7 @@ esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x,
         } else {
             for (int i = 0; i < cw; i++) {
                 uint16_t v = row[s_xmap[i]];
+                v = clear && v == mark ? 0 : v;
                 o[i] = be ? v : swap16(v);
             }
         }

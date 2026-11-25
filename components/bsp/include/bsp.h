@@ -67,7 +67,11 @@ bool bsp_display_inverted(void);
 // it is, so the caller must not free or move it before the transfer is done
 // (bsp_display_frame_wait). LVGL's next redraw of the area paints over the
 // frame. bsp_display_frame_end() waits and frees the staging buffer.
-esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x, int y, int dw, int dh, bool be);
+// clear: pixels of BSP_FRAME_CLEAR (Lua images' see-through marker, read in
+// the frame's byte order) go to the panel black; such a frame is always copied.
+#define BSP_FRAME_CLEAR 0x0001
+esp_err_t bsp_display_frame(const uint16_t *px, int stride, int w, int h, int x, int y, int dw, int dh, bool be,
+                            bool clear);
 // Whether bsp_display_frame takes that frame from where it is (no copy), as the
 // one rule its caller charges by and it draws by (the emulator copies every
 // frame but charges the same).

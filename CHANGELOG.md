@@ -6,6 +6,28 @@ update only to a newer one. Dates are commit dates. The contracts these builds
 implement (`docs/LUA_API.md`, `docs/MESH.md`, `server/API.md`) and the server and
 site changes that came with them live in the parent repository.
 
+## 2.5.1 (2026-11-25)
+
+Fixes from the review of #29 (Greptile).
+
+- **A key release is never lost** (`lua_host.c`): a release that finds the Lua queue full
+  (twelve mesh messages and four services' events fill all sixteen slots: the four kept
+  for keys only keep out mesh messages) waits on the session (`lh_t.ups_waiting`, under
+  `lh_mx`) and runs once the queue is empty, so after every event queued before it, its
+  press included. The OS clears its held bit before telling the app, so a dropped release
+  was a key a game held down for good. A new press of that key waits for it.
+- **`ui.frame` and `ui_frame` under a toast keep their scale** (`lh_frame_cut`): the rows
+  above a toast went out as a part row's worth of source stretched over them (a 10-row
+  image at scale 2 with 15 rows free: 7 source rows over 15). Now whole steps of the
+  frame's ratio are drawn (at an integer scale, whole scaled rows) and nothing when not
+  one fits.
+- **`ui.frame` sends see-through pixels black**, as documented (`bsp_display_frame`'s new
+  `clear`: `LH_PX_CLEAR`, `0x0001`, goes out as `0x0000`; C apps' frames are unchanged).
+- **Mailbox: an index from before 2.5.0 is saved with the server's name when it is adopted**
+  (`mailbox.c`): an index without `server` counts as the current server's, but unsaved it
+  would count as the next server's too after a server change, and its cursor would skip
+  that server's earlier mail (and acknowledge mail never collected).
+
 ## 2.5.0 (2026-11-25)
 
 For real-time games, from an app author's list: canvas drawing that redraws only what

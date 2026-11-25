@@ -256,7 +256,14 @@ static void load(void)
     if (!s_server[0] && was) {
         strlcpy(s_server, was, sizeof(s_server));
     }
+    // An old index adopted as this server's is saved with its name at once:
+    // else a server change before the next save would read it again unnamed,
+    // as the new server's, and its cursor would skip that server's mail.
+    bool adopt = root && !(was && was[0]) && s_server[0];
     cJSON_Delete(root);
+    if (adopt && !save_index()) {
+        ESP_LOGW(TAG, "can't name the old index's server");
+    }
     if (other) {
         ESP_LOGI(TAG, "the server changed: the old server's %d messages go", s_n);
         while (s_n > 0) {
