@@ -3,8 +3,8 @@
 // Brightness steps with LEFT/RIGHT (SELECT goes round from brightest to dimmest).
 // Invert colours flips with SELECT or LEFT/RIGHT, at once, so wrong colours
 // (RED on cyan: a prototype's panel) are put right where they're seen.
-// Software update opens the update screen (apps/update). Factory reset asks
-// again in an OS confirm dialog (SELECT twice).
+// Sound and Software update open their screens (apps/sound, apps/update).
+// Factory reset asks again in an OS confirm dialog (SELECT twice).
 
 #include <stdio.h>
 #include <string.h>
@@ -14,8 +14,9 @@
 #include "esp_app_desc.h"
 #include "core/os_settings.h"
 #include "core/ui.h"
+#include "audio.h"
 
-enum { ROW_THEME, ROW_BRIGHTNESS, ROW_INVERT, ROW_UPDATE, ROW_CALIB, ROW_RESET, ROW_COUNT };
+enum { ROW_THEME, ROW_BRIGHTNESS, ROW_INVERT, ROW_SOUND, ROW_UPDATE, ROW_CALIB, ROW_RESET, ROW_COUNT };
 
 static ui_list_t *s_list;
 
@@ -55,6 +56,17 @@ static void row(int i, ui_row_t *r, void *ctx)
         r->right_color = COL_TEXT;
         break;
     }
+    case ROW_SOUND:
+        strlcpy(r->title, "Sound", sizeof(r->title));
+        if (!audio_available()) {
+            strlcpy(r->sub, "No audio DAC found", sizeof(r->sub));
+        } else if (audio_setting_muted()) {
+            strlcpy(r->sub, "Muted", sizeof(r->sub));
+        } else {
+            snprintf(r->sub, sizeof(r->sub), "Volume %d of %d, test tone", audio_setting_volume(), AUDIO_VOLUME_MAX);
+        }
+        strlcpy(r->right, LV_SYMBOL_RIGHT, sizeof(r->right));
+        break;
     case ROW_UPDATE: {
         os_cloud_info_t *in = lv_malloc(sizeof(*in));
         if (in) {
@@ -156,6 +168,9 @@ static bool on_key(os_key_t k, bool repeat)
         os_setting_set(OS_SET_LCD_INVERT, !os_setting(OS_SET_LCD_INVERT));
         os_invert_apply();
         ui_list_refresh(s_list);
+        break;
+    case ROW_SOUND:
+        os_launch(&app_sound);
         break;
     case ROW_UPDATE:
         os_launch(&app_update);

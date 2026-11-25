@@ -502,4 +502,5 @@ void lh_cmd_register(void)
 {
     os_cmd_register("lua", "lua [list|run|rm <id> [file]|mem|sums|install <id>|put <id> <file> ...|recv <id> <file> <bytes> <sha256>]",
                     cmd_lua);
+    os_cmd_register("audio", "audio [stats|tone on|off|volume 0..10|mute on|off] - the audio module", lh_audio_cmd);
 }

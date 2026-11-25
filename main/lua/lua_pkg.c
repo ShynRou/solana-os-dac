@@ -18,7 +18,7 @@
 #define HASH_CHUNK  1024
 
 static const char *const s_perm_names[LUA_PERM_COUNT] = {
-    "led", "wifi", "mesh", "lamps", "items", "profile", "quest", "http", "rpc", "ble",
+    "led", "wifi", "mesh", "lamps", "items", "profile", "quest", "http", "rpc", "ble", "audio",
 };
 
 static const char *const s_perm_texts[LUA_PERM_COUNT] = {
@@ -32,6 +32,7 @@ static const char *const s_perm_texts[LUA_PERM_COUNT] = {
     "Talk to servers on the internet",
     "Read and send to Solana",
     "Talk to Bluetooth devices",
+    "Play sound through the headphone jack",
 };
 
 const char *lua_perm_name(int i)

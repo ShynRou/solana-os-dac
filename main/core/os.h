@@ -35,6 +35,7 @@ extern const int os_app_count;
 extern const os_app_t os_launcher;
 extern const os_app_t os_calibrate;     // hidden system app
 extern const os_app_t app_update;       // hidden: Settings > Software update (apps/update)
+extern const os_app_t app_sound;        // hidden: Settings > Sound (apps/sound, the audio module)
 
 void os_start(void);
 void os_splash(void);

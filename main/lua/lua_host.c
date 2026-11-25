@@ -245,6 +245,7 @@ static void close_state(lh_t *s)
         s->ui_off = true;
         lh_callback(s, run_on_exit, NULL);
         lh_ble_stop(s);                     // its callbacks go with the state
+        lh_audio_stop();                    // after on_exit: its last notes, then silence
         lh_storage_flush(s, true);
         s->steps = 0;
         lua_close(s->L);
@@ -464,6 +465,7 @@ static int boot(lua_State *L)
     lh_open_ble(L);
     lh_open_fs(L);
     lh_open_crypto(L);
+    lh_open_audio(L);
     lh_storage_load(s);
 
     // Then collect generationally: apps churn short-lived strings and
@@ -806,6 +808,7 @@ static void host_exit(void)
     bool done = s->finished || xSemaphoreTake(s_done, pdMS_TO_TICKS(LH_EXIT_WAIT_MS)) == pdTRUE;
     lh_net_stop(s);
     lh_ble_stop(s);
+    lh_audio_stop();
     lh_ui_release(s);
     xSemaphoreTake(lh_mx, portMAX_DELAY);
     lh_cur = NULL;

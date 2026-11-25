@@ -15,6 +15,7 @@
 #include "core/os_ota.h"
 #include "core/console.h"
 #include "lua/lua_host.h"
+#include "audio.h"
 #include "game/game.h"
 
 static const char *TAG = "solana_os";
@@ -74,6 +75,7 @@ void app_main(void)
     os_ble_init();      // the "ble" console command; Bluetooth stays off
 
     os_start();
+    audio_boot();       // after os_start: the buttons opened the I2C bus the DAC is on
     os_ota_init();
     console_start();    // last: the device console only sees commands registered before it
 }
