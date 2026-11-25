@@ -8,8 +8,19 @@ site changes that came with them live in the parent repository.
 
 ## 2.5.1 (2026-11-25)
 
-Fixes from the review of #29 (Greptile).
+Fixes from the review of #29 (Greptile), and text beyond ASCII.
 
+- **Cyrillic and accented letters on screen** (a Wi-Fi network named in Cyrillic showed
+  with its letters missing): every font now has ABC Diatype's Latin-1 and Latin
+  Extended-A (é, ü, ł, å, …) and falls back to Cyrillic from Inter (OFL,
+  `tools/fonts/`, U+0400-045F and Ґ ґ: Russian, Ukrainian, Belarusian, Serbian,
+  Macedonian, Bulgarian), since the brand font has none; then to Montserrat for the
+  icons. `sol_cyr_12/14/20/32`, `tools/gen_assets.sh`. The Diatype fonts keep their
+  ASCII line metrics (lv_font_conv sized lines by an accented capital: 14 px lines
+  became 18), so no layout moves, and their 95 ASCII glyphs are byte for byte the
+  same. +140 KB of flash. Text from the server, the mesh and scripts' dialogs stays
+  printable ASCII (`game_ascii`, `lua_pkg_plain`): that's a security rule, not a font
+  limit. Lua labels draw it (LUA_API.md).
 - **A key release is never lost** (`lua_host.c`): a release that finds the Lua queue full
   (twelve mesh messages and four services' events fill all sixteen slots: the four kept
   for keys only keep out mesh messages) waits on the session (`lh_t.ups_waiting`, under

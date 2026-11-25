@@ -228,6 +228,8 @@ ui.W, ui.H                          -- 320, 218
 ui.bg(color)                        -- background of the app area
 local l = ui.label(x, y, text, {size=14, color="text", mono=false, w=nil, align="left"})
 --   size: 12 | 14 | 20 | 32 (12 is always mono), align: "left" | "center" | "right" (needs w)
+--   text is UTF-8: ASCII, Latin-1, Latin Extended-A and Cyrillic draw (2.5.1; ASCII only
+--   before); other characters draw nothing
 l:text("hi")  l:pos(x, y)  l:color("green")  l:show(false)  l:remove()
 local r = ui.rect(x, y, w, h, {color="panel", radius=0, border=nil})
 r:pos(x, y)  r:size(w, h)  r:color(c)  r:show(b)  r:remove()

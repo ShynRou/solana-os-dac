@@ -115,6 +115,7 @@ set(SOLANA_OS_SRCS
     ${SOLANA_OS_LUA_VENDOR_SRCS}
     ${SOLANA_OS_WAMR_SRCS}
     assets/sol_mono_12.c assets/sol_font_14.c assets/sol_font_20.c assets/sol_font_32.c
+    assets/sol_cyr_12.c assets/sol_cyr_14.c assets/sol_cyr_20.c assets/sol_cyr_32.c
     assets/img_logomark_16.c assets/img_logomark_40.c assets/img_logomark_72.c
     assets/img_foundation.c assets/img_foundation_black.c
 )
