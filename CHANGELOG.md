@@ -6,7 +6,7 @@ update only to a newer one. Dates are commit dates. The contracts these builds
 implement (`docs/LUA_API.md`, `docs/MESH.md`, `server/API.md`) and the server and
 site changes that came with them live in the parent repository.
 
-## 2.5.0 (unreleased)
+## 2.5.0 (2026-11-25)
 
 For real-time games, from an app author's list: canvas drawing that redraws only what
 changed, sprite sheets and turned sprites, frames for Lua, key releases, a WebSocket that
@@ -78,7 +78,7 @@ porting Lua.
 - `docs/LUA_API.md` "The web emulator": what differs from a badge (speed, memory, radios,
   hardware, updates); the site's `/emulator` states the version it runs.
 
-## 2.4.0 (unreleased)
+## 2.4.0 (2026-11-16)
 
 Gossip, the event game on the badge mesh (the parent repo's docs/GOSSIP.md), run by the
 OS, with the `gossip` module for apps (permission `gossip`), roles, and the boss fight.
@@ -246,7 +246,7 @@ the whole OS.
   is gone; `bsp_battery_read` gives single samples. Host test:
   `sh main/core/tests/battery_test.sh`.
 
-## 2.3.1 (not released on its own: ships in 2.5.0)
+## 2.3.1 (never released on its own: in 2.5.0)
 
 Fixes from the review of solana-os#23 (2.3.0 on main). Nothing new for apps.
 
@@ -289,7 +289,7 @@ Fixes from the review of solana-os#23 (2.3.0 on main). Nothing new for apps.
   waiting, a failed `.tmp` rename, an update over a `data.json.tmp`, a storage decode that runs
   out of memory.
 
-## 2.3.0 (unreleased)
+## 2.3.0 (2026-11-15)
 
 C apps, background services with the first two built on them (Mailbox and
 Collaborator), and apps' reads of the player's inventory, on 2.2.0's ESP-IDF master. Two
@@ -689,7 +689,7 @@ server features of the same release show on the badge unchanged: the update ques
   handler copies what it needs under its lock; a Collaborator image arriving during a
   decode waits for it; `sys.tick`'s timer and Collaborator's two are made at boot.
 
-## 2.2.0 (unreleased)
+## 2.2.0 (2026-11-15)
 
 Only the move to ESP-IDF master; nothing else changes from 2.1.0.
 
