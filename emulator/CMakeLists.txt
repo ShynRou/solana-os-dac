@@ -31,6 +31,17 @@ include(${MAIN}/sources.cmake)
 set(FW_SRCS ${SOLANA_OS_SRCS})
 list(TRANSFORM FW_SRCS PREPEND ${MAIN}/)
 
+# ---- The audio component (components/audio): its portable engine and
+# service, the same files the badge builds; the output is
+# platform/audio_port_emu.c (WebAudio) instead of I2S and the DAC.
+set(AUDIO ${FW}/components/audio)
+include(${AUDIO}/sources.cmake)
+set(AUDIO_SRCS ${SOLANA_AUDIO_SRCS})
+list(TRANSFORM AUDIO_SRCS PREPEND ${AUDIO}/)
+list(APPEND FW_SRCS ${AUDIO_SRCS} ${EMU}/platform/audio_port_emu.c)
+set(AUDIO_INCS ${SOLANA_AUDIO_INCLUDE_DIRS})
+list(TRANSFORM AUDIO_INCS PREPEND ${AUDIO}/)
+
 # ---- Counterparts for badge-only sources: platform/<name>_emu.c ----
 file(GLOB BSP_SRCS RELATIVE ${BSP} CONFIGURE_DEPENDS ${BSP}/*.c)
 set(COUNTERPART_SRCS)
@@ -91,7 +102,7 @@ endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FW}/sdkconfig ${FW}/sdkconfig.defaults)
 
 set(COMMON_DEFS SOLANA_OS_EMULATOR=1 "LV_CONF_KCONFIG_EXTERNAL_INCLUDE=\"sdkconfig.h\"")
-set(COMMON_INCS ${EMU}/shim ${GEN} ${MAIN} ${BSP}/include ${LVGL} ${EMU}/platform ${CJSON_DIR})
+set(COMMON_INCS ${EMU}/shim ${GEN} ${MAIN} ${BSP}/include ${LVGL} ${EMU}/platform ${CJSON_DIR} ${AUDIO_INCS})
 # os_cloud.c identity hooks: the server sees model "emulator", hw "emu-<mac>".
 set(FW_DEFS "OS_CLOUD_MODEL=\"emulator\"" "OS_CLOUD_HW_PREFIX=\"emu-\"")
 

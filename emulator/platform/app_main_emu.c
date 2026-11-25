@@ -18,6 +18,7 @@
 #include "core/os_ota.h"
 #include "core/console.h"
 #include "lua/lua_host.h"
+#include "audio.h"
 #include "game/game.h"
 
 static const char *TAG = "solana_os";
@@ -111,6 +112,7 @@ void app_main(void)
     lua_host_init();
 
     os_start();
+    audio_boot();       // after os_start: the buttons opened the I2C bus the DAC is on
     os_ota_init();
     console_start();    // last: the device console only sees commands registered before it
 }
