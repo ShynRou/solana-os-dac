@@ -8,7 +8,21 @@ site changes that came with them live in the parent repository.
 
 ## 2.2.0 (unreleased)
 
-Only the move to ESP-IDF master; nothing else changes from 2.1.0.
+The move to ESP-IDF master, and an optional audio module.
+
+- **Audio** (`components/audio`, permission `audio`): synth and sampler voices on
+  a TLV320DAC3100 headphone DAC wired to I2S0 (GPIO 5, 2, 26) and the shared I2C
+  bus. 16 channels, 16 voices, 22.05/32/48 kHz mono or stereo; sine, pulse, saw,
+  triangle and noise with ADSR, a resonant low-pass and an LFO; WAV samples (PCM
+  8/16, IMA ADPCM) decoded into a 1 MB PSRAM pool; per-note handles and the
+  standard controllers, RPN, NRPN and MPE; Standard MIDI File playback; a tick
+  clock with quantised insert, update and delete on per-channel timelines. A mixer
+  task (priority 6) starts on an app's first `audio` call and stops when the app
+  exits. Without the DAC, `audio.available()` is false and every call is a
+  no-op. Settings > Sound: volume, mute and a test tone, kept across reboots. The
+  DAC sleeps after 10 s of silence. Console: `audio`. The emulator plays it through
+  WebAudio. Examples: `docs/examples/audio-selftest`, `audio-drumpad`,
+  `audio-song`. `bsp_i2c_bus()` shares the buttons' I2C bus.
 
 - **Built with ESP-IDF master** (was 6.0.1), pinned to commit `4109c8923a5`
   (v6.1-dev-9359, 2026-11-12, `IDF_VERSION` 6.3.0) in `esp-idf.commit`: the top
