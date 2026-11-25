@@ -1,0 +1,29 @@
+# Every waveform, one after the other, panned across.
+init 32000 2
+synth 1 wave=sine attack=5 decay=80 sustain=0.7 release=120
+synth 2 wave=pulse pulse_width=0.25 attack=5 decay=80 sustain=0.7 release=120
+synth 3 wave=saw attack=5 decay=80 sustain=0.7 release=120
+synth 4 wave=triangle attack=5 decay=80 sustain=0.7 release=120
+synth 5 wave=noise attack=2 decay=60 sustain=0.3 release=80
+assign 0 1
+assign 1 2
+assign 2 3
+assign 3 4
+assign 4 5
+at 0
+on 0 60 100 pan=-0.8
+at 300
+off 0 60
+on 1 64 100 pan=-0.4
+at 600
+off 1 64
+on 2 67 100
+at 900
+off 2 67
+on 3 72 100 pan=0.4
+at 1200
+off 3 72
+on 4 60 100 pan=0.8
+at 1500
+off 4 60
+at 1800

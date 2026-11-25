@@ -4,6 +4,7 @@
 // Recovered from the stock "c5_badge_hw_test" firmware (logs + disassembly) and
 // confirmed by probing the board. See ../README.md for how each pin was verified.
 
+#include "sdkconfig.h"
 #include "driver/spi_common.h"
 #include "driver/i2c_types.h"
 
@@ -51,3 +52,18 @@
 // UART0 console via CH340C
 #define BOARD_UART_TX           11
 #define BOARD_UART_RX           12
+
+// Audio DAC (optional, hand-wired): TLV320DAC3100 on the I2C bus above and
+// I2S0 on three free pads. menuconfig "Solana OS audio" overrides the pins.
+// GPIO 2 and 26 are strapping pins; the DAC's inputs are high impedance.
+#ifdef CONFIG_SOLANA_AUDIO_I2S_BCK
+#define BOARD_I2S_BCK           CONFIG_SOLANA_AUDIO_I2S_BCK
+#define BOARD_I2S_WS            CONFIG_SOLANA_AUDIO_I2S_WS
+#define BOARD_I2S_DOUT          CONFIG_SOLANA_AUDIO_I2S_DOUT
+#define BOARD_DAC_ADDR          CONFIG_SOLANA_AUDIO_DAC_ADDR
+#else
+#define BOARD_I2S_BCK           5
+#define BOARD_I2S_WS            2
+#define BOARD_I2S_DOUT          26
+#define BOARD_DAC_ADDR          0x18
+#endif

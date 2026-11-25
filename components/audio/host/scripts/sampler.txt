@@ -1,0 +1,15 @@
+# The 441 Hz fixture as a sampler bank: root, transpose, loop.
+init 22050 1
+bank 1
+sample 1 file=../fixtures/pcm16.wav root=69 lo=0 hi=71
+sample 1 file=../fixtures/adpcm.wav root=69 lo=72 hi=127 loop=1000,1500 release=200
+assign 0 1
+at 0
+on 0 69 120
+at 300
+on 0 57 100
+at 600
+on 0 81 100
+at 1000
+off 0 81
+at 1400

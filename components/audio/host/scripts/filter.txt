@@ -1,0 +1,19 @@
+# A resonant saw with a filter envelope, a CC 74 sweep and vibrato.
+init 32000 2
+synth 1 wave=saw filter=1 cutoff=0.3 resonance=0.7 filter_env=0.4 attack=5 decay=300 sustain=0.5 release=200 vibrato_rate=6 vibrato_depth=0.3 vibrato_delay=200
+assign 0 1
+at 0
+on 0 45 110
+at 200
+cc 0 74 20
+at 400
+cc 0 74 60
+at 600
+cc 0 74 100
+at 800
+cc 0 74 127
+at 1000
+cc 0 1 127
+at 1400
+off 0 45
+at 1800

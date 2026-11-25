@@ -75,7 +75,7 @@ The manifest, as the badge stores it:
   "icon": "play",                   // one of the icon names below
   "accent": "14F195",               // hex colour, no '#'
   "category": "games",              // games | tools | social | quests | demos
-  "permissions": ["lamps", "items", "http"],  // led wifi mesh ble lamps items profile quest http rpc
+  "permissions": ["lamps", "items", "http"],  // led wifi mesh ble lamps items profile quest http rpc audio
   "hosts": ["api.example.com"],     // what `http` and `ws` may call (only with the `http` permission)
   "files": 2,                       // bundled files (the store fills it in)
   "filesSize": 5120,                // their bytes together
@@ -138,6 +138,7 @@ HOME always returns to the launcher. The screen below the status bar is
 | HTTP | 60 requests a minute per badge, ≤ 2 KB sent, ≤ about 3.5 KB of answer, 6 s to answer |
 | RPC | 30 calls a minute per badge (6 of them `sendTransaction`), ≤ 2 KB of params, ≤ about 3.5 KB of answer, 6 s to answer |
 | WebSocket | one at a time, 20 opens a minute per badge, ≤ 4 KB per message either way, 8 waiting to go |
+| Audio | with the `audio` permission and a DAC: 16 voices, 256 events in flight, a 1 MB sample pool in PSRAM outside the Lua heap, sample loads cost 500 instructions plus 1 per 4 bytes (see `audio`) |
 | Crypto | of a callback's 200 000 instructions: a signature check takes 40 000, an on-curve test 5 000, a program-derived address 10 000 (see `crypto` and `solana`) |
 | Numbers | 32-bit integers (they wrap at ±2^31) and 32-bit floats (about 7 digits) |
 
@@ -925,6 +926,159 @@ end
 local ok, why = ble.on()                       -- nil and "not enough memory" or "unavailable"
 if ok then find() else status:text("No Bluetooth: " .. why) end
 ```
+
+### `audio` (permission `audio`, Solana OS 2.2.0)
+
+Synth and sampler voices on the headphone jack of a badge with the optional
+TLV320DAC3100 audio DAC (`components/audio/README.md` has the wiring). Apps
+send MIDI-style events; a mixer task on its own clock plays them, so a slow
+callback or a garbage collection never makes the sound stutter. 16 channels
+(0..15), 16 voices, 22.05, 32 or 48 kHz, mono or stereo.
+
+Without the DAC, `audio.available()` is false and every other call does
+nothing. Without the permission, every call raises
+`audio: add the "audio" permission to app.json`. Nothing runs until the first
+call; when the app exits the OS silences it and frees everything the app made.
+
+```lua
+if not audio.available() then return end          -- no DAC fitted
+audio.init{rate = 32000, channels = 2}            -- optional (this is the default); before making anything
+
+local lead = audio.synth{wave = "pulse", pw = 0.25,           -- sine pulse saw triangle noise
+  adsr = {5, 80, 0.6, 150},                                   -- attack ms, decay ms, sustain 0..1, release ms
+  filter = {cutoff = 0.7, res = 0.3, env = 0.4, key_track = 0},   -- resonant low-pass, 0..1 (env -1..1)
+  lfo = {rate = 5, vibrato = 0.2, tremolo = 0, cutoff = 0, delay = 0},  -- Hz, semitones, 0..1, 0..1, ms
+  volume = 1, pan = 0, detune = 0, portamento = 0}            -- 0..2, -1..1, cents, ms
+local kit, err = audio.bank{                                  -- nil and why if a file won't load
+  {file = "smp/kick.wav", root = 36, keys = {36, 36}},
+  {file = "smp/pluck.wav", root = 60, keys = {48, 84}, vel = {0, 127}, loop = {1200, 4800},
+   adsr = {2, 60, 0.8, 200}, fine = 0, volume = 1, layer = 0}}
+audio.bank_add(kit, {file = "smp/snare.wav", root = 38, keys = {38, 38}})
+audio.synth_set(lead, {...})                                  -- notes started afterwards
+
+audio.assign(0, lead)                  -- a channel plays one synth or one bank; unassigned: silent
+audio.assign(1, kit)
+local n = audio.note_on(0, 64, 100, 0) -- channel, note, velocity, delay ms -> a note handle
+audio.note_off(n, 250)                 -- by handle, or audio.note_off(0, 64, 250)
+audio.cc(0, 10, 32)                    -- controller (pan left), delay ms optional
+audio.bend(0, 0.5)                     -- -1..1 of the bend range (2 semitones; RPN 0 sets it)
+audio.pressure(0, 0.4)                 -- channel pressure 0..1
+audio.midi(0x90, 60, 100, 0)           -- a raw message: status, data 1, data 2, delay ms
+audio.all_off(kill)                    -- release every voice (kill: 2 ms fade)
+audio.volume(0.8)                      -- the app's volume 0..1, under the Settings volume
+audio.program(bank_msb, program, handle)   -- what a song's program changes select
+audio.reset()                          -- forget everything made, stop; audio.init may then change the format
+print(audio.stats())                   -- cpu 3.1% (peak 4.0%), underruns 0, dropped 0, voices 2, pool 98/1024 KB
+```
+
+Calls return `true` (or a value), or `nil` and a reason: `"full"` (a queue or
+table), `"out of audio memory"`, `"not a file the audio loader reads"`,
+`"stereo WAV: convert it to mono"`. Bad arguments (a channel outside 0..15, an
+unknown parameter or wave) raise an error. Delays are milliseconds from the
+call; a delay of 0 plays at the next block (8 ms at 32 kHz).
+
+**Samples** are mono WAV files bundled with the app: PCM 8 or 16 bit, or IMA
+ADPCM (4 bit), any rate up to 48 kHz. They are decoded once into the audio pool
+(1 MB of PSRAM, separate from the 6 MB Lua heap), 2 bytes per frame: 1 s at
+22050 Hz is 43 KB whatever the file's format. A note picks the sample whose key
+and velocity range (and `layer`, chosen with CC 70) match, and plays it at the
+pitch `note - root` semitones away. `loop = {start, end}` (frames) makes a
+sustain loop; a file's own `smpl` loop is used otherwise. Loading reads the
+file in the calling callback and costs 500 instructions plus 1 per 4 bytes,
+like `fs.read`, so load in the top-level chunk and keep each file under about
+700 KB (an ADPCM file is a quarter of the size). `components/audio/tools/audio_prep.sh`
+converts any audio file.
+
+**Live and per-note control.** Every parameter resolves in three layers: the
+synth's value, the channel's (CC, RPN, NRPN, `audio.param`) and the note's
+(the `note_on` bundle, `audio.note_*`, polyphonic pressure). Changes are
+smoothed across 2 ms. Parameter names: `volume` `pan` `cutoff` `resonance`
+`attack` `decay` `sustain` `release` `vibrato_rate` `vibrato_depth`
+`vibrato_delay` `tremolo_depth` `pulse_width` `detune` `filter_env`
+`portamento` (0..1 levels, ms for times, Hz, semitones, cents).
+
+```lua
+local n = audio.note_on(0, 60, 100, 0, {cutoff = 0.3, attack = 5, pan = -0.4})   -- ≤ 8, from sample 0
+audio.note_param(n, "resonance", 0.7, 0)   -- one note, one parameter, delay ms
+audio.note_ramp(n, "cutoff", 0.9, 400)     -- a sweep the mixer computes, over ms
+audio.note_bend(n, -1.5)                   -- semitones, this note only
+audio.note_pressure(n, 0.6)                -- polyphonic aftertouch
+audio.param(0, "cutoff", 0.5)              -- the whole channel
+audio.cc(0, 74, 90)                        -- CC 70..78 and 94 are relative to the synth, 64 neutral
+audio.nrpn(0, 1, 40)                       -- NRPN MSB 1, LSB 1: pulse width 40 % (absolute)
+audio.rpn(0, 0, 12)                        -- RPN 0: bend range in semitones
+audio.map_cc(0, 16, "vibrato_rate", 0.1, 12)
+audio.pressure_target(0, "cutoff", 0.5)    -- what pressure moves, and how far
+audio.mpe{first = 1, last = 15}            -- MPE: each note its own channel; audio.mpe(false) ends it
+```
+
+A handle that has ended (released and finished, or its voice taken by a new
+note) is ignored and counted in `stats().stale`. Controllers: 1 modulation
+(vibrato depth), 5 portamento time, 7 volume, 10 pan, 11 expression, 64
+sustain, 65 portamento, 66 sostenuto, 67 soft, 68 legato, 70 sample layer, 71
+resonance, 72 release, 73 attack, 74 cutoff, 75 decay, 76 vibrato rate, 77
+vibrato depth, 78 vibrato delay, 92 tremolo, 94 detune, 120 all sound off, 121
+reset, 123 all notes off. NRPN (MSB 1), LSB: 0 wave, 1 pulse width %, 2 filter
+envelope %, 3 key tracking %, 4 vibrato rate (1/100 Hz), 5 LFO targets, 6
+sustain %, 7 filter on, 8 sample loop on, 9 sample fine tune (8192 + cents);
+`audio.nrpn` takes values to 16383. RPN 0 bend range, 1 fine and 2 coarse
+tuning.
+
+**Songs.** A Standard MIDI File (format 0 or 1) plays inside the mixer with its
+tempo map; its channels are the engine's channels, so assign them first.
+
+```lua
+local song = assert(audio.song("music/theme.mid"))   -- ≤ 4 songs; nil and why
+song:play{loop = true, quant = "bar", follow_song_tempo = true, tempo = 1.0}
+song:pause{quant = "beat"}             -- play again resumes where it paused
+song:stop()                            -- and back to the start
+```
+
+**Clock, grid and timelines.** The engine counts ticks of a tempo clock locked
+to the sample clock (no drift); a bar is `ppqn * beats` ticks. Each channel has
+a timeline of scheduled items that the mixer plays on time; edits land on a
+grid boundary, so streaming music is "write the next bar before it starts".
+
+```lua
+audio.transport{bpm = 120, ppqn = 480, beats = 4, quant = "bar"}   -- -> the tick the tempo applies at
+local g = audio.grid()                 -- {ppqn = 480, beat = 480, bar = 1920, bpm = 120}
+local t = audio.clock()                -- tick being rendered now
+local heard = audio.heard()            -- tick at the jack now (behind clock by the output latency)
+local at = (t // g.bar + 2) * g.bar    -- the bar after next
+audio.insert(0, {                      -- item ticks count from the edit's tick
+  {0,   "note", 36, 110, 240},         -- tick, "note", note, velocity, length in ticks
+  {480, "note", 38, 100, 120, id = 1}, -- id: a name for the note inside this edit
+  {480, "param", "cutoff", 0.8, ref = 1},   -- ref: that note only
+  {960, "cc", 74, 90},
+  {960, "bend", 0.5}, {1200, "pressure", 0.3}, {1440, "program", 2},
+}, {at = at})                          -- -> the tick it applies at
+audio.update(0, at, at + g.bar, items, {quant = "bar", trim = false})   -- replace what starts in [from, to)
+audio.delete(0, at, at + g.bar, {quant = "beat"})
+audio.stop{channel = 0, quant = "bar"} -- clear a timeline and release its notes
+audio.stop{channel = "all", kill = true}   -- everything: timelines, the song, delayed events
+audio.transport_stop()                 -- clock back to 0, every timeline cleared
+```
+
+`quant` is a tick count or `"now"`, `"beat"`, `"bar"`; an edit applies at the
+first boundary after the mixer's lock point (one block ahead) and at or after
+`at`. A note that began inside an updated range is released at the boundary; one
+that began before it plays on (`trim = true` releases it). Timelines hold 2,048
+items in all and an edit at most 256: an edit that doesn't fit is refused whole.
+For tight rhythm, keep one or two bars queued from `on_tick`.
+
+`audio.stats()` (always allowed with the permission): `cpu`, `peak_cpu` (% of
+the core the mixer used), `underruns`, `dropped_events`, `voices_active`,
+`pool_used`, `pool_free`, `rate`, `channels`, `stale`, `ignored`,
+`ramps_dropped`, `tl_rejected`, `tl_late`, `tl_free`, `clipped`, `latency`
+(frames), `running`, `dac_awake`. `tostring()` gives the one-line summary.
+
+Limits: 16 voices (a new note takes a free voice, else the quietest releasing
+one, else the oldest), 256 immediate events in flight (more are dropped and
+counted), 63 synths and banks, 32 samples per bank, 4 songs, the 1 MB pool.
+Waveforms are not band-limited: high saw and pulse notes alias. The Settings
+volume and mute apply on top of `audio.volume`. The DAC sleeps after 10 s of
+silence and wakes on the next call. In the emulator the sound plays through the
+browser after the first click or key.
 
 ### `lamps` (permission `lamps`)
 

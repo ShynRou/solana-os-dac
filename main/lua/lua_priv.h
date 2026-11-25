@@ -363,6 +363,11 @@ void lh_ble_stop(lh_t *s);                              // any task: the app sto
 // lua_crypto.c: crypto (SHA-256, Ed25519 checks) and solana (base58, program-derived addresses)
 void lh_open_crypto(lua_State *L);
 
+// lua_audio.c: the `audio` module over components/audio
+void lh_open_audio(lua_State *L);
+void lh_audio_stop(void);                               // any task: the app stops, its sound goes
+int lh_audio_cmd(int argc, char **argv);                // the "audio" console command
+
 // lua_net.c: mesh, lamps, items, profile, quest, http
 void lh_open_net(lua_State *L);
 void lh_calls_run(lh_t *s);                             // answer finished calls

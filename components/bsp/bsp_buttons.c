@@ -15,6 +15,7 @@ static const char *TAG = "bsp_buttons";
 #define TCA9534_REG_CONFIG  3
 #define POLL_MS             50
 
+static i2c_master_bus_handle_t s_bus;
 static i2c_master_dev_handle_t s_tca;
 static SemaphoreHandle_t s_irq;
 static bsp_btn_cb_t s_cb;
@@ -67,14 +68,13 @@ esp_err_t bsp_buttons_start(bsp_btn_cb_t cb)
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = true,
     };
-    i2c_master_bus_handle_t bus;
-    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &bus), TAG, "i2c bus");
+    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &s_bus), TAG, "i2c bus");
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = BOARD_TCA9534_ADDR,
         .scl_speed_hz = 400000,
     };
-    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus, &dev_cfg, &s_tca), TAG, "tca9534");
+    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_bus, &dev_cfg, &s_tca), TAG, "tca9534");
     uint8_t all_inputs[2] = {TCA9534_REG_CONFIG, 0xFF};
     ESP_RETURN_ON_ERROR(i2c_master_transmit(s_tca, all_inputs, sizeof(all_inputs), 50), TAG, "tca9534 not responding");
 
@@ -97,4 +97,9 @@ esp_err_t bsp_buttons_start(bsp_btn_cb_t cb)
 uint32_t bsp_buttons_get(void)
 {
     return s_pressed;
+}
+
+i2c_master_bus_handle_t bsp_i2c_bus(void)
+{
+    return s_bus;
 }

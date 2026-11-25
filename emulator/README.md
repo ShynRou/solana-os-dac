@@ -49,6 +49,7 @@ firmware/emulator/
 | `bsp_display.c` | ILI9341 + esp_lvgl_port | `bsp_display_emu.c`: 2 x 320x24 partial buffers, RGBA framebuffer for a `<canvas>` |
 | `bsp_buttons.c` | TCA9534 + BOOT, button task | `bsp_buttons_emu.c`: page sets the raw lines, same task/callback shape |
 | `bsp_rgb.c` | WS2812 via RMT | `bsp_rgb_emu.c`: shown colours read by the page |
+| `components/audio` (`audio.c`, `core/`) | mixer task, I2S0 + TLV320DAC3100 (`port/audio_port_esp.c`) | same engine and service; `platform/audio_port_emu.c` plays each block through WebAudio, scheduled back to back, and paces the mixer like the DMA ring does. The AudioContext starts on the page's first click or key (or `Module.audioResume()`) |
 | `bsp_battery.c` | ADC | `bsp_battery_emu.c`: slowly draining fake reading |
 | `bsp_sd.c` | SPI microSD + FatFs | `bsp_sd_emu.c`: 64 MB card in MEMFS (stdio/dirent work, `readdir` hides `.`/`..` like FatFs) |
 | promiscuous Wi-Fi (`espnow_app.c`) | real radio | `esp_wifi_emu.c`: real 802.11 vendor action frames on the tuned channel |

@@ -1,0 +1,20 @@
+# Per-note control: bundle, note param, ramp, bend, pedal and pan.
+init 32000 2
+synth 1 wave=pulse filter=1 cutoff=0.8 attack=10 decay=100 sustain=0.8 release=150
+assign 0 1
+at 0
+on 0 60 100 cutoff=0.3 pan=-0.5
+nramp cutoff 0.9 500
+at 100
+on 0 64 100 pan=0.5
+nparam resonance 0.8
+at 300
+cc 0 64 127
+off 0 60
+off 0 64
+at 500
+param 0 detune 30
+bend 0 4096
+at 800
+cc 0 64 0
+at 1200
