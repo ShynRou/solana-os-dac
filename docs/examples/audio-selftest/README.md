@@ -8,7 +8,9 @@ engine makes, with its own figures on screen.
   string (IMA ADPCM) and an 8-bar song, made by
   `components/audio/tools/make_demo_assets.py` (no third-party audio).
 
-Rows: a 440 Hz tone, the five waveforms, a 16-voice chord (the CPU figure for
+Rows: a 440 Hz tone, the five waveforms, the five noises
+(white, pink, brown, metallic, digital), a 5-note strummed chord on a synth
+capped at 3 voices followed by a mono legato line, a 16-voice chord (the CPU figure for
 acceptance A1/A2), the sample kit, the demo song looped, a 120 BPM click track
 streamed onto channel 9's timeline two bars ahead while every tick churns
 the heap so the garbage collector keeps running (A5), a flood of 1,000 events in one callback (A6), a

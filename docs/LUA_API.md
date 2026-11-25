@@ -945,6 +945,8 @@ if not audio.available() then return end          -- no DAC fitted
 audio.init{rate = 32000, channels = 2}            -- optional (this is the default); before making anything
 
 local lead = audio.synth{wave = "pulse", pw = 0.25,           -- sine pulse saw triangle noise
+  noise = "white",                                            -- with wave = "noise": white pink brown metallic digital
+  voices = 0, legato = false,                                 -- 0 no limit, 1 mono (mono = true), 2..16 a cap
   adsr = {5, 80, 0.6, 150},                                   -- attack ms, decay ms, sustain 0..1, release ms
   filter = {cutoff = 0.7, res = 0.3, env = 0.4, key_track = 0},   -- resonant low-pass, 0..1 (env -1..1)
   lfo = {rate = 5, vibrato = 0.2, tremolo = 0, cutoff = 0, delay = 0},  -- Hz, semitones, 0..1, 0..1, ms
@@ -960,6 +962,8 @@ audio.assign(0, lead)                  -- a channel plays one synth or one bank;
 audio.assign(1, kit)
 local n = audio.note_on(0, 64, 100, 0) -- channel, note, velocity, delay ms -> a note handle
 audio.note_off(n, 250)                 -- by handle, or audio.note_off(0, 64, 250)
+local c = audio.chord(0, {60, 64, 67}, 100, 0, 30)   -- notes, velocity, delay ms, strum ms -> {handles}
+audio.note_off(c, 500)                 -- a table of handles releases them all
 audio.cc(0, 10, 32)                    -- controller (pan left), delay ms optional
 audio.bend(0, 0.5)                     -- -1..1 of the bend range (2 semitones; RPN 0 sets it)
 audio.pressure(0, 0.4)                 -- channel pressure 0..1
@@ -976,6 +980,26 @@ table), `"out of audio memory"`, `"not a file the audio loader reads"`,
 `"stereo WAV: convert it to mono"`. Bad arguments (a channel outside 0..15, an
 unknown parameter or wave) raise an error. Delays are milliseconds from the
 call; a delay of 0 plays at the next block (8 ms at 32 kHz).
+
+**Noise and polyphony.** `wave = "noise"` plays the synth's `noise`: `white`
+(a 16-bit LFSR clocked at 16 times the note, so higher notes are brighter),
+`pink` (-3 dB per octave) and `brown` (-6 dB per octave, a rumble), both
+clocked the same way; `metallic` (six square waves at the TR-808 cymbal's
+ratios, pitched by the note: with a short envelope it makes
+hats and cymbals) and `digital` (a 93-step looped LFSR, the 8-bit consoles'
+"periodic" noise, pitched by the note). `wave = "pink"` (or `"brown"`,
+`"metallic"`, `"digital"`) is shorthand. NRPN 1/10 picks the noise for a
+channel's next notes (0 white to 4 digital).
+
+A channel plays as many notes as there are voices (16 in all). `voices = N`
+on a synth caps it at N notes at a time: a new note past the cap takes over the
+channel's oldest note (a 2 ms fade, no click). `voices = 1` (or `mono = true`)
+is monophonic: a new note replaces the last; add `legato = true` to keep the
+envelope running and only change the pitch (with portamento, CC 65, it
+glides). CC 126/127 and CC 68 do the same per channel. `audio.chord(ch,
+notes, vel, delay, strum)` starts up to 16 notes in one call, each `strum` ms
+after the one before, and returns their handles (`false` for a note that could
+not start); `audio.note_off` takes that table.
 
 **Samples** are mono WAV files bundled with the app: PCM 8 or 16 bit, or IMA
 ADPCM (4 bit), any rate up to 48 kHz. They are decoded once into the audio pool
@@ -1020,7 +1044,8 @@ resonance, 72 release, 73 attack, 74 cutoff, 75 decay, 76 vibrato rate, 77
 vibrato depth, 78 vibrato delay, 92 tremolo, 94 detune, 120 all sound off, 121
 reset, 123 all notes off. NRPN (MSB 1), LSB: 0 wave, 1 pulse width %, 2 filter
 envelope %, 3 key tracking %, 4 vibrato rate (1/100 Hz), 5 LFO targets, 6
-sustain %, 7 filter on, 8 sample loop on, 9 sample fine tune (8192 + cents);
+sustain %, 7 filter on, 8 sample loop on, 9 sample fine tune (8192 + cents),
+10 noise (0 white, 1 pink, 2 brown, 3 metallic, 4 digital);
 `audio.nrpn` takes values to 16383. RPN 0 bend range, 1 fine and 2 coarse
 tuning.
 

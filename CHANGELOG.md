@@ -23,6 +23,12 @@ The move to ESP-IDF master, and an optional audio module.
   DAC sleeps after 10 s of silence. Console: `audio`. The emulator plays it through
   WebAudio. Examples: `docs/examples/audio-selftest`, `audio-drumpad`,
   `audio-song`. `bsp_i2c_bus()` shares the buttons' I2C bus.
+- **Audio noises and polyphony**: the noise wave plays white, pink, brown,
+  metallic (TR-808 cymbal ratios) or digital (93-step periodic) noise
+  (`noise =`, NRPN 1/10); a synth can cap its notes (`voices = N`), play mono
+  (`voices = 1` or `mono = true`) and legato (`legato = true`);
+  `audio.chord(ch, notes, vel, delay, strum)` starts a chord and returns its
+  handles, which `audio.note_off` releases as a table.
 
 - **Built with ESP-IDF master** (was 6.0.1), pinned to commit `4109c8923a5`
   (v6.1-dev-9359, 2026-11-12, `IDF_VERSION` 6.3.0) in `esp-idf.commit`: the top

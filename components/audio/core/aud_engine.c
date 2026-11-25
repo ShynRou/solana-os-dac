@@ -311,6 +311,12 @@ static void patch_sanitize(aud_patch_t *p)
     }
     p->filter = p->filter ? 1 : 0;
     p->lfo_targets &= 7;
+    if (p->noise >= AUD_NOISE_COUNT) {
+        p->noise = AUD_NOISE_WHITE;
+    }
+    p->voices = (uint8_t)aud_clampi(p->voices, 0, AUD_VOICES);
+    p->legato = p->legato ? 1 : 0;
+    p->reserved[0] = p->reserved[1] = 0;
     for (int i = 0; i < AUD_P_COUNT; i++) {
         p->p[i] = aud_param_clamp(i, p->p[i]);
     }

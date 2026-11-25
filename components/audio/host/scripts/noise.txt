@@ -1,0 +1,49 @@
+# The five noises, then a voice cap of 3 (a 5-note chord keeps the top 3) and a mono legato line.
+init 32000 2
+synth 1 wave=noise noise=white attack=2 decay=60 sustain=0.5 release=80
+synth 2 wave=noise noise=pink attack=2 decay=60 sustain=0.5 release=80
+synth 3 wave=noise noise=brown attack=2 decay=60 sustain=0.5 release=80
+synth 4 wave=noise noise=metallic attack=1 decay=120 sustain=0 release=120 filter=1 cutoff=0.9
+synth 5 wave=noise noise=digital attack=2 decay=60 sustain=0.5 release=80
+synth 6 wave=saw voices=3 attack=5 decay=80 sustain=0.7 release=150
+synth 7 wave=pulse voices=1 legato=1 portamento=40 attack=5 decay=80 sustain=0.7 release=150
+assign 0 1
+assign 1 2
+assign 2 3
+assign 3 4
+assign 4 5
+assign 5 6
+assign 6 7
+at 0
+on 0 120 100
+at 250
+off 0 120
+on 1 120 100
+at 500
+off 1 120
+on 2 120 100
+at 750
+off 2 120
+on 3 84 110
+at 1000
+on 4 60 100
+at 1250
+off 4 60
+on 5 48 90
+on 5 55 90
+on 5 60 90
+on 5 64 90
+on 5 67 90
+at 1750
+alloff
+cc 6 65 127
+on 6 60 100
+at 1900
+on 6 64 100
+at 2050
+on 6 67 100
+at 2200
+off 6 60
+off 6 64
+off 6 67
+at 2600

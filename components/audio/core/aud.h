@@ -91,6 +91,14 @@ int32_t aud_param_clamp(int p, int32_t v);
 int32_t aud_param_from_q16(int p, int32_t q16);
 
 enum { AUD_WAVE_SINE, AUD_WAVE_PULSE, AUD_WAVE_SAW, AUD_WAVE_TRI, AUD_WAVE_NOISE, AUD_WAVE_COUNT };
+// What AUD_WAVE_NOISE plays (aud_patch_t.noise, NRPN 10):
+//   white     a 16-bit LFSR clocked at 16x the note frequency: higher notes, brighter hiss
+//   pink      white noise through a -3 dB/octave filter (Paul Kellet's economy filter)
+//   brown     integrated white noise, -6 dB/octave: rumble, surf
+//   metallic  six square waves at the TR-808 cymbal ratios from the note: hats, cymbals, bells
+//   digital   a 93-step LFSR (the NES's short mode) at the note: pitched, buzzy
+// pink and brown don't follow the note; the others do.
+enum { AUD_NOISE_WHITE, AUD_NOISE_PINK, AUD_NOISE_BROWN, AUD_NOISE_METALLIC, AUD_NOISE_DIGITAL, AUD_NOISE_COUNT };
 enum { AUD_LFO_PITCH = 1, AUD_LFO_AMP = 2, AUD_LFO_CUTOFF = 4 };
 
 // A synth patch: plain data (FR-14). Notes copy it when they start.
@@ -98,7 +106,13 @@ typedef struct {
     uint8_t wave;           // AUD_WAVE_*
     uint8_t filter;         // 1: the low-pass is on
     uint8_t lfo_targets;    // AUD_LFO_* bits
-    uint8_t reserved;
+    uint8_t noise;          // AUD_NOISE_*, for AUD_WAVE_NOISE
+    uint8_t voices;         // notes a channel sounds at once with this patch: 0 = no limit,
+                            // 1 = mono (a new note takes over the voice), 2..16 = a cap
+                            // (the channel's oldest note makes room)
+    uint8_t legato;         // with voices = 1: a new note while one is held keeps its
+                            // envelope and only changes pitch (glides with portamento)
+    uint8_t reserved[2];
     int32_t p[AUD_P_COUNT]; // base values
     int32_t key_track;      // filter key tracking 0..1 (Q16)
     int32_t lfo_cutoff;     // LFO to cutoff depth, 0..1 of the cutoff range (Q16)

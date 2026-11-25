@@ -6,6 +6,7 @@
 // Script format, one command per line, # starts a comment:
 //   init <rate> [channels]          start an engine (1 MB pool)
 //   synth <n> key=value ...         patch n: wave=sine|pulse|saw|triangle|noise filter=0|1
+//                                   noise=white|pink|brown|metallic|digital voices=0..16 legato=0|1
 //                                   key=<0..1> lfo_cutoff=<0..1> targets=<mask> and any
 //                                   parameter by name (cutoff=0.5 attack=5 ...; times in ms)
 //   bank <n>                        an empty bank n

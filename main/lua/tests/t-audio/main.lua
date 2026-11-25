@@ -15,6 +15,15 @@ check("init", audio.init{rate = 32000, channels = 2} == true)
 local lead = audio.synth{wave = "saw", adsr = {5, 50, 0.7, 100}, filter = {cutoff = 0.5, res = 0.2}}
 check("synth handle", math.type(lead) == "integer" and lead > 0, lead)
 check("synth bad wave", not pcall(audio.synth, {wave = "fm"}))
+for _, nz in ipairs{"white", "pink", "brown", "metallic", "digital"} do
+  check("noise " .. nz, math.type(audio.synth{wave = "noise", noise = nz}) == "integer")
+end
+check("noise shorthand", math.type(audio.synth{wave = "metallic"}) == "integer")
+check("bad noise", not pcall(audio.synth, {wave = "noise", noise = "blue"}))
+local poly = audio.synth{wave = "pulse", voices = 3, adsr = {5, 50, 0.7, 100}}
+check("voices", math.type(poly) == "integer")
+check("mono legato", math.type(audio.synth{wave = "saw", mono = true, legato = true}) == "integer")
+check("voices range", not pcall(audio.synth, {voices = 17}))
 local b, err = audio.bank{{file = "nope.wav"}}
 check("bank missing file", b == nil and tostring(err):find("nope.wav", 1, true) ~= nil, err)
 check("assign", audio.assign(0, lead) == true)
@@ -39,6 +48,11 @@ local at = audio.insert(1, {{0, "note", 48, 100, 240}, {480, "cc", 74, 30}, {960
 check("insert on the bar", math.type(at) == "integer" and at % g.bar == 0, at)
 check("bad item", not pcall(audio.insert, 1, {{0, "chord"}}))
 check("stop channel", math.type(audio.stop{channel = 1}) == "integer")
+audio.assign(3, poly)
+local chord = audio.chord(3, {48, 52, 55, 60, 64}, 90, 0, 20)
+check("chord handles", type(chord) == "table" and #chord == 5 and math.type(chord[1]) == "integer", chord and #chord)
+check("chord off", audio.note_off(chord, 300) == true)
+check("chord empty", not pcall(audio.chord, 3, {}))
 local before = audio.stats().dropped_events
 for i = 1, 1000 do audio.cc(2, 1, i % 128) end
 local after = audio.stats().dropped_events
