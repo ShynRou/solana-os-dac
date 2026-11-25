@@ -1,0 +1,63 @@
+menu "Solana OS audio"
+
+config SOLANA_AUDIO
+    bool "Audio engine (TLV320DAC3100 on I2S0)"
+    default y
+    help
+        The optional audio module: a synth and sampler mixer for apps (the
+        Lua `audio` module), a Sound page in Settings, and the DAC driver.
+        Off: every audio call is a no-op and audio.available() is false.
+
+if SOLANA_AUDIO
+
+config SOLANA_AUDIO_I2S_BCK
+    int "I2S bit clock GPIO"
+    default 5
+
+config SOLANA_AUDIO_I2S_WS
+    int "I2S word select GPIO"
+    default 2
+
+config SOLANA_AUDIO_I2S_DOUT
+    int "I2S data out GPIO"
+    default 26
+
+config SOLANA_AUDIO_DAC_ADDR
+    hex "TLV320DAC3100 I2C address"
+    default 0x18
+
+config SOLANA_AUDIO_POOL_KB
+    int "Sample pool (KB of PSRAM, at most)"
+    default 1024
+    range 64 4096
+    help
+        Decoded samples and songs live here. Allocated when an app first
+        uses audio, from PSRAM, never more than leaves
+        SOLANA_AUDIO_RESERVE_KB free.
+
+config SOLANA_AUDIO_RESERVE_KB
+    int "PSRAM the pool always leaves free (KB)"
+    default 512
+
+config SOLANA_AUDIO_SILENCE_S
+    int "Seconds of silence before the DAC powers down"
+    default 10
+    range 1 600
+
+config SOLANA_AUDIO_DMA_BLOCKS
+    int "I2S DMA blocks of 256 frames"
+    default 6
+    range 3 16
+    help
+        6 blocks are 48 ms at 32 kHz: the spec's 40 to 60 ms of buffering.
+
+config SOLANA_AUDIO_TASK_PRIO
+    int "Mixer task priority"
+    default 6
+    help
+        Above LVGL and the OS task (4), the buttons (5) and Lua (2); below
+        Wi-Fi (23).
+
+endif
+
+endmenu

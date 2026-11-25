@@ -30,7 +30,7 @@
 #define AUD_CHUNK           64          // frames between parameter updates
 #define AUD_BLOCK_MAX       256         // most frames aud_render renders per call
 #define AUD_QUEUE           256         // immediate events in flight (FR-8)
-#define AUD_PENDING         512         // events the mixer holds sorted by time
+#define AUD_PENDING         256         // events the mixer holds sorted by time
 #define AUD_HANDLES         64          // patch and bank handles, 1..AUD_HANDLES-1
 #define AUD_PATCH_SLOTS     64          // patch storage (aud_patch_set uses a fresh slot)
 #define AUD_BANKS           16
