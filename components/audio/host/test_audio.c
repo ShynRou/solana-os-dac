@@ -1072,7 +1072,9 @@ TEST(test_patch_set)
 static void golden(bool update)
 {
     s_test = "golden";
-    const char *scripts[] = { "scripts/waves.txt", "scripts/filter.txt", "scripts/params.txt", "scripts/sampler.txt" };
+    const char *scripts[] = { "scripts/waves.txt", "scripts/filter.txt", "scripts/params.txt", "scripts/sampler.txt",
+                              "scripts/noise.txt" };
+    const int count = (int)(sizeof(scripts) / sizeof(scripts[0]));
     FILE *g = fopen("golden.txt", "r");
     char line[256];
     uint64_t want[8] = {0};
@@ -1080,7 +1082,7 @@ static void golden(bool update)
         char name[200];
         unsigned long long v;
         if (sscanf(line, "%199s %llx", name, &v) == 2) {
-            for (int k = 0; k < 4; k++) {
+            for (int k = 0; k < count; k++) {
                 if (!strcmp(name, scripts[k])) {
                     want[k] = v;
                 }
@@ -1091,7 +1093,7 @@ static void golden(bool update)
         fclose(g);
     }
     FILE *out = update ? fopen("golden.txt", "w") : NULL;
-    for (int k = 0; k < 4; k++) {
+    for (int k = 0; k < count; k++) {
         if (h_script(scripts[k]) != 0) {
             CHECK(0, "%s failed to run", scripts[k]);
             continue;
@@ -1142,6 +1144,148 @@ static void cpu_figure(void)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Noise types and the patch's voice mode
+
+static int noise_synth(int type, int voices, int legato)
+{
+    aud_patch_t p;
+    aud_patch_default(&p);
+    p.wave = AUD_WAVE_NOISE;
+    p.noise = (uint8_t)type;
+    p.voices = (uint8_t)voices;
+    p.legato = (uint8_t)legato;
+    p.p[AUD_P_ATTACK] = 2;
+    p.p[AUD_P_RELEASE] = 20;
+    p.p[AUD_P_SUSTAIN] = AUD_ONE;
+    return aud_patch_new(H.e, &p);
+}
+
+// Energy of the first difference over the energy: 2 for flat noise,
+// lower the more the spectrum leans to the bass.
+static double diff_ratio(size_t a, size_t b)
+{
+    double ex = 0, ed = 0, mean = 0;
+    for (size_t i = a; i < b; i++) {
+        mean += pcm_l(i);
+    }
+    mean /= (double)(b - a);
+    for (size_t i = a + 1; i < b; i++) {
+        double x = pcm_l(i) - mean, d = pcm_l(i) - pcm_l(i - 1);
+        ex += x * x;
+        ed += d * d;
+    }
+    return ex > 0 ? ed / ex : 0;
+}
+
+static double rms(size_t a, size_t b)
+{
+    double e = 0;
+    for (size_t i = a; i < b; i++) {
+        e += (double)pcm_l(i) * pcm_l(i);
+    }
+    return sqrt(e / (double)(b - a));
+}
+
+TEST(test_noise_types)
+{
+    static const char *names[] = { "white", "pink", "brown", "metallic", "digital" };
+    double tilt[AUD_NOISE_COUNT];
+    for (int t = 0; t < AUD_NOISE_COUNT; t++) {
+        h_init(32000, 1, 0);
+        aud_assign(H.e, 0, noise_synth(t, 0, 0));
+        aud_note_on(H.e, 0, 120, 127, 0, NULL, 0);
+        h_render(32000);
+        double r = rms(3200, 32000);
+        int pk = peak(3200, 32000);
+        CHECK(r > 1500 && pk < 32767, "%s: rms %.0f peak %d", names[t], r, pk);
+        CHECK(max_step(0, 200) < 40000, "%s: click at the start", names[t]);
+        tilt[t] = diff_ratio(3200, 32000);
+    }
+    // (The white LFSR keeps its original sound, so it is not the yardstick: flat noise measures 2.)
+    CHECK(tilt[AUD_NOISE_PINK] > 0.01 && tilt[AUD_NOISE_PINK] < 0.5, "pink tilt %.3f", tilt[AUD_NOISE_PINK]);
+    CHECK(tilt[AUD_NOISE_BROWN] < tilt[AUD_NOISE_PINK] * 0.5, "brown %.3f vs pink %.3f", tilt[AUD_NOISE_BROWN],
+          tilt[AUD_NOISE_PINK]);
+    // Metallic and digital are pitched: an octave up doubles the crossings.
+    for (int t = AUD_NOISE_METALLIC; t <= AUD_NOISE_DIGITAL; t++) {
+        double f[2];
+        for (int o = 0; o < 2; o++) {
+            h_init(32000, 1, 0);
+            aud_assign(H.e, 0, noise_synth(t, 0, 0));
+            aud_note_on(H.e, 0, 48 + 12 * o, 127, 0, NULL, 0);
+            h_render(32000);
+            f[o] = freq_of(3200, 32000);
+        }
+        CHECK(f[0] > 50 && f[1] / f[0] > 1.8 && f[1] / f[0] < 2.2, "%s: %.1f then %.1f Hz", names[t], f[0], f[1]);
+    }
+    // NRPN 1/10 picks the noise for the channel's next notes.
+    h_init(32000, 1, 0);
+    aud_assign(H.e, 0, noise_synth(AUD_NOISE_WHITE, 0, 0));
+    aud_cc(H.e, 0, 99, 1, 0), aud_cc(H.e, 0, 98, 10, 0), aud_cc(H.e, 0, 6, 0, 0), aud_cc(H.e, 0, 38, 3, 0);
+    uint32_t a = aud_note_on(H.e, 0, 60, 100, 0, NULL, 0);
+    h_render(256);
+    CHECK(voice_of(a) && voice_of(a)->noise_type == AUD_NOISE_METALLIC, "NRPN 10: %d",
+          voice_of(a) ? voice_of(a)->noise_type : -1);
+}
+
+static int sounding_on(int ch)
+{
+    int n = 0;
+    for (int i = 0; i < AUD_VOICES; i++) {
+        const aud_voice_t *v = &H.e->voices[i];
+        n += v->ch == ch && (v->pend || (v->env != ENV_OFF && v->env != ENV_KILL));
+    }
+    return n;
+}
+
+TEST(test_voice_cap)
+{
+    // voices = 3: a fourth and fifth note take the place of the oldest two.
+    h_init(32000, 2, 0);
+    aud_assign(H.e, 0, noise_synth(AUD_NOISE_METALLIC, 3, 0));
+    aud_assign(H.e, 1, synth(AUD_WAVE_SAW, 5, 100));
+    uint32_t h[5];
+    for (int i = 0; i < 5; i++) {
+        h[i] = aud_note_on(H.e, 0, 60 + i, 100, 0, NULL, 0);
+        aud_note_on(H.e, 1, 40 + i, 100, 0, NULL, 0);     // the other channel is not capped
+        CHECK(sounding_on(0) <= 3, "note %d: %d voices on the capped channel", i, sounding_on(0));
+        h_render(128);
+    }
+    CHECK(sounding_on(0) == 3, "%d voices on the capped channel", sounding_on(0));
+    CHECK(sounding_on(1) == 5, "%d voices on the free channel", sounding_on(1));
+    CHECK(!voice_of(h[0]) && !voice_of(h[1]), "the oldest notes still sound");
+    CHECK(voice_of(h[2]) && voice_of(h[3]) && voice_of(h[4]), "a new note is missing");
+    // Several notes in one block still respect the cap.
+    for (int i = 0; i < 6; i++) {
+        aud_note_on(H.e, 0, 70 + i, 100, 0, NULL, 0);
+    }
+    h_render(256);
+    CHECK(sounding_on(0) == 3, "burst: %d voices", sounding_on(0));
+    CHECK(h_count(AUD_TRACE_START, 0, 75) == 1, "the last note of the burst did not start");
+}
+
+TEST(test_voice_mono_legato)
+{
+    // voices = 1: one voice, the newest note wins; with legato the envelope carries on.
+    for (int leg = 0; leg < 2; leg++) {
+        h_init(32000, 1, 0);
+        aud_assign(H.e, 0, noise_synth(AUD_NOISE_DIGITAL, 1, leg));
+        uint32_t a = aud_note_on(H.e, 0, 60, 100, 0, NULL, 0);
+        h_render(3200);
+        aud_voice_t *va = voice_of(a);
+        int32_t level = va ? va->level : 0;
+        uint32_t b = aud_note_on(H.e, 0, 67, 100, 0, NULL, 0);
+        h_render(64);
+        CHECK(sounding_on(0) == 1, "legato %d: %d voices", leg, sounding_on(0));
+        CHECK(voice_of(b) && !voice_of(a), "legato %d: the new note does not own the voice", leg);
+        if (leg) {
+            CHECK(voice_of(b) == va && va->level >= level / 2, "legato: envelope restarted (%d from %d)",
+                  voice_of(b) ? voice_of(b)->level : -1, level);
+            CHECK(h_count(AUD_TRACE_START, 0, 67) <= 1, "legato traced %d starts", h_count(AUD_TRACE_START, 0, 67));
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     bool update = argc > 1 && !strcmp(argv[1], "--update-golden");
@@ -1174,6 +1318,9 @@ int main(int argc, char **argv)
     RUN(test_transport_restart);
     RUN(test_reset_frees_everything);
     RUN(test_patch_set);
+    RUN(test_noise_types);
+    RUN(test_voice_cap);
+    RUN(test_voice_mono_legato);
     golden(update);
     cpu_figure();
     h_free();

@@ -129,6 +129,7 @@ static int32_t q16(const char *s)
 }
 
 static const char *const s_waves[] = {"sine", "pulse", "saw", "triangle", "noise"};
+static const char *const s_noises[] = {"white", "pink", "brown", "metallic", "digital"};
 
 static int kv(char *tok, char **k, char **v)
 {
@@ -197,6 +198,16 @@ int h_script(const char *path)
                             p.wave = (uint8_t)w;
                         }
                     }
+                } else if (!strcmp(k, "noise")) {
+                    for (int w = 0; w < AUD_NOISE_COUNT; w++) {
+                        if (!strcmp(v, s_noises[w])) {
+                            p.noise = (uint8_t)w;
+                        }
+                    }
+                } else if (!strcmp(k, "voices")) {
+                    p.voices = (uint8_t)atoi(v);
+                } else if (!strcmp(k, "legato")) {
+                    p.legato = (uint8_t)atoi(v);
                 } else if (!strcmp(k, "filter")) {
                     p.filter = (uint8_t)atoi(v);
                 } else if (!strcmp(k, "key")) {

@@ -305,6 +305,16 @@ static bool voice_begin(aud_engine_t *e, aud_voice_t *v)
     v->phase = v->frac = 0;
     v->noise = 0xACE1u ^ v->note;
     v->noise_ph = 0;
+    v->noise_type = v->patch.noise < AUD_NOISE_COUNT ? v->patch.noise : AUD_NOISE_WHITE;
+    if (c->noise_override != 0xFF) {
+        v->noise_type = c->noise_override;
+    }
+    for (int i = 0; i < 6; i++) {
+        v->nz[i] = 0;
+    }
+    if (v->noise_type == AUD_NOISE_DIGITAL) {
+        v->noise = 1;                   // the seed that lands on the 93-step loop
+    }
     v->lp = v->bp = 0;
     v->age = 0;
     v->env = ENV_ATTACK;
@@ -352,9 +362,15 @@ uint32_t aud_note_start(aud_engine_t *e, int ch, int note, int vel, uint32_t ser
         return 0;                           // unassigned channels are silent (FR-19)
     }
     bool mpe = e->mpe_first <= e->mpe_last && ch >= e->mpe_first && ch <= e->mpe_last;
+    // The patch's voice mode: voices = 1 is mono (legato if it asks), more is a cap.
+    uint16_t hm = atomic_load_explicit(&e->handles[c->handle], memory_order_acquire);
+    const aud_patch_t *pp = (hm & H_PATCH) ? &e->cold->patches[hm & 0xFF] : NULL;
+    int cap = pp ? pp->voices : 0;
+    bool legato = c->legato || (cap == 1 && pp->legato);
     aud_voice_t *v = NULL;
-    // Mono (CC 126), legato (CC 68) and MPE channels keep one sounding voice.
-    if (c->mono || c->legato || mpe) {
+    // Mono (CC 126 or the patch), legato (CC 68 or the patch) and MPE
+    // channels keep one sounding voice.
+    if (c->mono || legato || mpe || cap == 1) {
         for (int i = 0; i < AUD_VOICES; i++) {
             aud_voice_t *w = &e->voices[i];
             if (w->ch == ch && w->env >= ENV_ATTACK && w->env <= ENV_SUSTAIN && !w->pend) {
@@ -362,7 +378,7 @@ uint32_t aud_note_start(aud_engine_t *e, int ch, int note, int vel, uint32_t ser
                 break;
             }
         }
-        if (v && c->legato && !v->is_sample) {
+        if (v && legato && !v->is_sample) {
             // Legato: new pitch, same envelope.
             int32_t from = v->note;
             aud_voice_clear_ramps(e, v);
@@ -406,12 +422,36 @@ uint32_t aud_note_start(aud_engine_t *e, int ch, int note, int vel, uint32_t ser
                 break;
             }
         }
-        if (!v) {
-            // Steal: the quietest releasing voice, else the oldest.
+        // The patch's cap: at the limit, this channel's oldest note makes room.
+        bool steal = !v;
+        if (cap > 1) {
+            int n = 0;
+            aud_voice_t *old = NULL, *queued = NULL;
             for (int i = 0; i < AUD_VOICES; i++) {
                 aud_voice_t *w = &e->voices[i];
-                if (w->env == ENV_RELEASE && !w->pend && (!v || w->level < v->level)) {
-                    v = w;
+                if (w->ch != ch || (!w->pend && (w->env == ENV_OFF || w->env == ENV_KILL))) {
+                    continue;
+                }
+                n++;                        // a pending start counts: it is this channel's next note
+                if (w->pend) {
+                    queued = queued ? queued : w;
+                } else if (!old || (int32_t)(w->order - old->order) < 0) {
+                    old = w;
+                }
+            }
+            if (n >= cap && (old || queued)) {
+                v = old ? old : queued;     // all of them are waiting to start: the new note replaces one
+                steal = true;
+            }
+        }
+        if (steal) {
+            if (!v) {
+                // Steal: the quietest releasing voice, else the oldest.
+                for (int i = 0; i < AUD_VOICES; i++) {
+                    aud_voice_t *w = &e->voices[i];
+                    if (w->env == ENV_RELEASE && !w->pend && (!v || w->level < v->level)) {
+                        v = w;
+                    }
                 }
             }
             if (!v) {
@@ -510,6 +550,90 @@ void aud_note_stop(aud_engine_t *e, int ch, int note)
 // ---------------------------------------------------------------------------
 // Rendering
 
+// The noise source behind AUD_WAVE_NOISE. White, pink and brown share the
+// clocked LFSR (so the note still sets how bright they are); pink and brown
+// filter it. Metallic and digital are pitched: they follow the note.
+static const uint32_t s_metal_ratio[6] = { 65536, 97172, 117984, 166856, 172380, 255380 };   // TR-808 cymbal, Q16
+
+static inline int16_t clamp16(int32_t x)
+{
+    return (int16_t)(x > 32767 ? 32767 : x < -32768 ? -32768 : x);
+}
+
+static void noise(aud_voice_t *v, int16_t *t, int n, uint32_t step)
+{
+    uint32_t lf = v->noise, np = v->noise_ph;
+    int32_t *z = v->nz;
+    switch (v->noise_type) {
+    case AUD_NOISE_METALLIC:
+        for (int i = 0; i < n; i++) {
+            int32_t sum = 0;
+            for (int k = 0; k < 6; k++) {
+                uint32_t p = (uint32_t)z[k] + (uint32_t)(((uint64_t)step * s_metal_ratio[k]) >> 16);
+                z[k] = (int32_t)p;
+                sum += (p & 0x80000000u) ? -1 : 1;
+            }
+            t[i] = (int16_t)(sum * 5461);
+        }
+        break;
+    case AUD_NOISE_DIGITAL: {           // 15-bit LFSR in short mode: a 93-step loop, one loop per note period
+        uint64_t inc = (uint64_t)step * 93u;
+        for (int i = 0; i < n; i++) {
+            uint64_t a = (uint64_t)np + inc;
+            uint32_t clocks = (uint32_t)(a >> 32);
+            np = (uint32_t)a;
+            if (clocks > 93) {
+                clocks = 93;
+            }
+            while (clocks--) {
+                uint32_t fb = (lf ^ (lf >> 6)) & 1u;
+                lf = (lf >> 1) | (fb << 14);
+            }
+            t[i] = (lf & 1u) ? -24576 : 24576;
+        }
+        break;
+    }
+    default: {                          // white: a 16-bit LFSR clocked at 16x the note frequency
+        // Pink and brown filter an xorshift source clocked the same way:
+        // successive LFSR words share 15 bits, which would tilt them before
+        // the filter does.
+        uint32_t ns = step << 4, x = (uint32_t)z[5] ? (uint32_t)z[5] : 0x9E3779B9u ^ v->note;
+        for (int i = 0; i < n; i++) {
+            uint32_t old = np;
+            np += ns;
+            bool tick = np < old || ns >= 0x80000000u;
+            if (tick) {
+                lf = (lf >> 1) ^ (-(lf & 1u) & 0xB400u);
+            }
+            int32_t w = (int16_t)lf;
+            if (v->noise_type != AUD_NOISE_WHITE) {
+                if (tick) {
+                    x ^= x << 13;
+                    x ^= x >> 17;
+                    x ^= x << 5;
+                }
+                w = (int16_t)(x >> 16);
+            }
+            if (v->noise_type == AUD_NOISE_PINK) {          // Paul Kellet's economy filter, -3 dB/octave
+                z[0] = (int32_t)(((int64_t)z[0] * 32691 + (int64_t)w * 3246) >> 15);
+                z[1] = (int32_t)(((int64_t)z[1] * 31556 + (int64_t)w * 9716) >> 15);
+                z[2] = (int32_t)(((int64_t)z[2] * 18678 + (int64_t)w * 34495) >> 15);
+                w = clamp16((z[0] + z[1] + z[2] + ((w * 6056) >> 15)) >> 3);
+            } else if (v->noise_type == AUD_NOISE_BROWN) {  // leaky integrator, -6 dB/octave
+                z[3] += w >> 5;
+                z[3] -= z[3] >> 9;
+                w = clamp16(z[3]);
+            }
+            t[i] = (int16_t)w;
+        }
+        z[5] = (int32_t)x;
+        break;
+    }
+    }
+    v->noise = lf;
+    v->noise_ph = np;
+}
+
 static void osc(aud_voice_t *v, int16_t *t, int n, uint32_t step, uint32_t pw)
 {
     uint32_t ph = v->phase;
@@ -535,21 +659,10 @@ static void osc(aud_voice_t *v, int16_t *t, int n, uint32_t step, uint32_t pw)
             t[i] = (int16_t)(u < 32768 ? 2 * u - 32768 : 98303 - 2 * u);
         }
         break;
-    default: {                          // noise: a 16-bit LFSR clocked at 16x the note frequency
-        uint32_t lf = v->noise, np = v->noise_ph, ns = step << 4;
-        for (int i = 0; i < n; i++) {
-            uint32_t old = np;
-            np += ns;
-            if (np < old || ns >= 0x80000000u) {
-                lf = (lf >> 1) ^ (-(lf & 1u) & 0xB400u);
-            }
-            t[i] = (int16_t)lf;
-        }
-        v->noise = lf;
-        v->noise_ph = np;
+    default:
+        noise(v, t, n, step);
         ph += step * (uint32_t)n;
         break;
-    }
     }
     v->phase = ph;
 }

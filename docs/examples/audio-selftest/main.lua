@@ -1,4 +1,5 @@
--- Audio self-test (permission "audio"): tones, every waveform, 16 voices, the
+-- Audio self-test (permission "audio"): tones, every waveform and noise,
+-- polyphony limits and chords, 16 voices, the
 -- sample kit, a demo song, a click track on the tick clock and an event flood,
 -- with the engine's load, underruns, drops and pool use on screen. Pick a test
 -- with UP/DOWN and SELECT. The last row switches the output format.
@@ -16,6 +17,7 @@ local line2 = ui.label(10, 44, "", {size = 12, w = 300})
 local msg = ui.label(10, 58, "", {size = 12, w = 300, color = "dim"})
 
 local fi = 1
+local NOISES = {"white", "pink", "brown", "metallic", "digital"}
 local lead, bass, sine, waves, kit, song
 local tone, song_on, click_on = nil, false, false
 local next_bar
@@ -40,6 +42,15 @@ local function setup()
     waves[i] = audio.synth{wave = w, adsr = {5, 0, 1, 80}, volume = 0.4}
     audio.assign(2 + i, waves[i])                     -- channels 3..7
   end
+  for i, nz in ipairs(NOISES) do                    -- channels 10..14
+    local hit = nz == "metallic" and {1, 250, 0, 250} or {5, 0, 1, 80}
+    audio.assign(9 + i, audio.synth{wave = "noise", noise = nz, adsr = hit, volume = 0.4})
+  end
+  audio.assign(15, audio.synth{wave = "saw", voices = 3, adsr = {5, 100, 0.6, 250},
+                               filter = {cutoff = 0.5, res = 0.2}, volume = 0.4})
+  audio.assign(8, audio.synth{wave = "pulse", pw = 0.3, mono = true, legato = true, portamento = 60,
+                              adsr = {10, 100, 0.7, 200}, volume = 0.5})
+  audio.cc(8, 65, 127)                              -- portamento on
   local err
   kit, err = audio.bank{
     {file = "smp/kick.wav", root = 36, keys = {35, 36}},
@@ -93,6 +104,23 @@ local tests = {
       audio.note_off(2 + i, 60, (i - 1) * 600 + 450)
     end
     say("five waveforms, 0.6 s each")
+  end},
+  {"Noises", "white, pink, brown, metallic, digital", function()
+    for i, nz in ipairs(NOISES) do
+      local note = (nz == "metallic" or nz == "digital") and 72 or 120
+      audio.note_on(9 + i, note, 100, (i - 1) * 600)
+      audio.note_off(9 + i, note, (i - 1) * 600 + 450)
+    end
+    say("five noises, 0.6 s each")
+  end},
+  {"Polyphony", "a 5-note chord capped at 3, then mono legato", function()
+    local c = audio.chord(15, {48, 52, 55, 60, 64}, 90, 0, 60)
+    audio.note_off(c, 1500)
+    for i, n in ipairs({60, 62, 64, 67, 64, 62, 60}) do
+      audio.note_on(8, n, 100, 1800 + (i - 1) * 180)
+    end
+    audio.note_off(8, 60, 1800 + 7 * 180)
+    say("strummed chord (top 3 ring), then a gliding mono line")
   end},
   {"16 voices", "a 4 s chord: the CPU figure", function()
     for i = 0, 15 do

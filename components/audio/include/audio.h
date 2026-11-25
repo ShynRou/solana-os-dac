@@ -66,6 +66,9 @@ typedef struct {
     float lfo_delay;            // ms
     int lfo_targets;            // AUD_LFO_* (0: all three)
     float volume, pan, detune, portamento;  // 0..2, -1..1, cents, ms
+    int noise;                  // AUD_NOISE_* (what wave = AUD_WAVE_NOISE plays)
+    int voices;                 // 0 no limit, 1 mono, 2..16 at most that many notes at once
+    bool legato;                // with voices = 1: a new note keeps the envelope
 } audio_synth_t;
 
 void audio_synth_default(audio_synth_t *s);
@@ -90,6 +93,9 @@ int audio_program(int bank_msb, int program, int handle);   // what a .mid's pro
 
 int audio_assign(int ch, int handle);
 uint32_t audio_note_on(int ch, int note, int vel, uint32_t delay_ms, const aud_pv_t *bundle, int n);
+// Several notes at once (a chord), each strum_ms after the one before; the
+// handles go to out (0 for a note that did not start). Returns how many started.
+int audio_chord(int ch, const int *notes, int count, int vel, uint32_t delay_ms, uint32_t strum_ms, uint32_t *out);
 int audio_note_off(int ch, int note, uint32_t delay_ms);
 int audio_note_off_h(uint32_t handle, uint32_t delay_ms);
 int audio_cc(int ch, int cc, int value, uint32_t delay_ms);

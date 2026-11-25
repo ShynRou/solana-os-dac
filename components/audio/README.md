@@ -79,6 +79,22 @@ audio.note_on ... -> producer rings -> aud_render(256 frames) -> int16 -> 6 x 25
 - **CPU.** `audio.stats().cpu` is render time over block time, smoothed;
   `peak_cpu` is the worst block.
 
+## Noise and voices
+
+`AUD_WAVE_NOISE` plays `aud_patch_t.noise` (or the channel's NRPN 1/10):
+white is the original 16-bit LFSR clocked at 16x the note (bit-identical, so
+the golden renders kept their hashes); pink (Kellet's economy filter) and
+brown (a leaky integrator) filter an xorshift source clocked the same way;
+metallic sums six squares at the TR-808 cymbal ratios; digital is a 15-bit LFSR
+in short mode, clocked 93x the note so its loop sounds at the note's pitch.
+The state adds 28 bytes per voice.
+
+`aud_patch_t.voices` caps the patch's notes on a channel: past the cap the
+channel's oldest note is faded (2 ms) and replaced, and notes waiting on such a
+fade count, so a burst in one block keeps the cap. `voices = 1` is mono and
+`legato` keeps the envelope (the same path as CC 126 and CC 68).
+`audio_chord()` is a loop of `aud_note_on` with a delay step.
+
 ## The DAC
 
 `port/dac_tlv320.c`. No MCLK is wired: the DAC's PLL runs from BCLK
@@ -105,8 +121,10 @@ MCLK not connected. Headphones only (the speaker needs 5 V).
 
 ## Tests
 
-- `host/`: `make test` runs 29 tests (2,956 checks) under ASan and UBSan:
-  acceptance A5 to A8 and A13 to A28 on the core, golden render hashes, and a
+- `host/`: `make test` runs 32 tests (2,989 checks) under ASan and UBSan:
+  acceptance A5 to A8 and A13 to A28 on the core, the noise types and the
+  per-synth voice cap, mono and legato, golden render hashes (`scripts/noise.txt`
+  covers the noises and polyphony), and a
   CPU figure for the host. `make fixtures` regenerates the WAV fixtures (ffmpeg).
 - `main/lua/tests/t-audio`, `t-audio-noperm`: the Lua surface and the
   permission error (A11). Both pass in the emulator.

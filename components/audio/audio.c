@@ -464,6 +464,9 @@ static void to_patch(const audio_synth_t *s, aud_patch_t *p)
     }
     p->key_track = q16(s->key_track);
     p->lfo_cutoff = q16(s->lfo_cutoff);
+    p->noise = (uint8_t)(s->noise >= 0 && s->noise < AUD_NOISE_COUNT ? s->noise : AUD_NOISE_WHITE);
+    p->voices = (uint8_t)(s->voices < 0 ? 0 : s->voices > AUD_VOICES ? AUD_VOICES : s->voices);
+    p->legato = s->legato;
 }
 
 int audio_synth_new(const audio_synth_t *s)
@@ -601,6 +604,20 @@ uint32_t audio_note_on(int ch, int note, int vel, uint32_t delay_ms, const aud_p
     uint32_t h = aud_note_on(s_eng, ch, note, vel, ms(delay_ms), bundle, n);
     leave();
     return h;
+}
+
+int audio_chord(int ch, const int *notes, int count, int vel, uint32_t delay_ms, uint32_t strum_ms, uint32_t *out)
+{
+    memset(out, 0, sizeof(*out) * (size_t)(count > 0 ? count : 0));
+    ENTER0();
+    int started = 0;
+    for (int i = 0; i < count; i++) {
+        uint32_t h = aud_note_on(s_eng, ch, notes[i], vel, ms(delay_ms + strum_ms * (uint32_t)i), NULL, 0);
+        out[i] = h;
+        started += h != 0;
+    }
+    leave();
+    return started;
 }
 
 int audio_note_off(int ch, int note, uint32_t delay_ms)

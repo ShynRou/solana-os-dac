@@ -39,6 +39,7 @@ void aud_chan_reset(aud_engine_t *e, int ch, bool all)
         c->chan_rel[p] = aud_param_mult_kind(p) ? AUD_ONE : 0;
     }
     c->wave_override = c->filter_override = c->loop_override = c->lfo_targets_override = 0xFF;
+    c->noise_override = 0xFF;
     c->key_track_override = -1;
     c->sample_fine = 0;
     if (all) {
@@ -100,6 +101,7 @@ static void data_entry(aud_engine_t *e, int ch)
     case 7: c->filter_override = v14 ? 1 : 0; break;
     case 8: c->loop_override = v14 ? 1 : 0; break;
     case 9: c->sample_fine = aud_clampi(v14 - 8192, -100, 100) * AUD_ONE; break;               // 8192 + cents
+    case 10: c->noise_override = (uint8_t)aud_clampi(v14, 0, AUD_NOISE_COUNT - 1); break;
     }
 }
 

@@ -118,6 +118,8 @@ typedef struct {
     uint32_t frac;          // sampler: 16-bit fraction
     uint32_t noise;         // LFSR
     uint32_t noise_ph;
+    uint8_t noise_type;     // AUD_NOISE_*
+    int32_t nz[6];          // noise state: pink filter taps, brown level, metallic phases
     uint32_t lfo_phase;
     int32_t glide;          // portamento offset, 1/256 semitone, moving to 0
     int32_t glide_step;     // per sample, Q8 of the offset unit
@@ -165,6 +167,7 @@ typedef struct {
     int32_t chan_abs[AUD_P_COUNT];
     int32_t chan_rel[AUD_P_COUNT];  // CC offsets (offset params) or Q16 multipliers (times, rate)
     uint8_t wave_override;  // NRPN 0 (0xFF none)
+    uint8_t noise_override; // NRPN 10 (0xFF none)
     uint8_t filter_override, loop_override;  // NRPN 7, 8 (0xFF none)
     uint8_t lfo_targets_override;            // NRPN 5 (0xFF none)
     int32_t key_track_override;              // NRPN 3 (-1 none)

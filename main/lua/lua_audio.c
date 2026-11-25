@@ -190,16 +190,39 @@ static int l_reset(lua_State *L)
     return push_rc(L, audio_reset());
 }
 
-static const char *const s_waves[] = { "sine", "pulse", "saw", "triangle", "noise", NULL };
+// The last four are shorthands for wave = "noise" with that noise.
+static const char *const s_waves[] = { "sine", "pulse", "saw", "triangle", "noise",
+                                       "pink", "brown", "metallic", "digital", NULL };
+static const char *const s_noises[] = { "white", "pink", "brown", "metallic", "digital", NULL };
 
 static void read_synth(lua_State *L, int t, audio_synth_t *s)
 {
     audio_synth_default(s);
     lua_getfield(L, t, "wave");
     if (!lua_isnil(L, -1)) {
-        s->wave = luaL_checkoption(L, -1, NULL, s_waves);
+        int w = luaL_checkoption(L, -1, NULL, s_waves);
+        s->wave = w < AUD_WAVE_COUNT ? w : AUD_WAVE_NOISE;
+        if (w >= AUD_WAVE_COUNT) {
+            s->noise = w - AUD_WAVE_COUNT + AUD_NOISE_PINK;
+        }
     }
     lua_pop(L, 1);
+    lua_getfield(L, t, "noise");
+    if (!lua_isnil(L, -1)) {
+        s->noise = luaL_checkoption(L, -1, NULL, s_noises);
+    }
+    lua_pop(L, 1);
+    lua_getfield(L, t, "voices");
+    if (!lua_isnil(L, -1)) {
+        lua_Integer n = luaL_checkinteger(L, -1);
+        luaL_argcheck(L, n >= 0 && n <= AUD_VOICES, 1, "voices is 0 (no limit) to 16");
+        s->voices = (int)n;
+    }
+    lua_pop(L, 1);
+    if (fbool(L, t, "mono", false)) {
+        s->voices = 1;
+    }
+    s->legato = fbool(L, t, "legato", false);
     s->pw = fnum(L, t, "pw", s->pw);
     s->volume = fnum(L, t, "volume", s->volume);
     s->pan = fnum(L, t, "pan", 0);
@@ -233,7 +256,7 @@ static void read_synth(lua_State *L, int t, audio_synth_t *s)
     }
 }
 
-// audio.synth{wave=, pw=, adsr={a,d,s,r}, filter={cutoff=, res=, env=,
+// audio.synth{wave=, noise=, voices=, mono=, legato=, pw=, adsr={a,d,s,r}, filter={cutoff=, res=, env=,
 // key_track=}, lfo={rate=, vibrato=, tremolo=, cutoff=, delay=}, volume=,
 // pan=, detune=, portamento=} -> handle
 static int l_synth(lua_State *L)
@@ -414,10 +437,61 @@ static int l_note_on(lua_State *L)
     return 1;
 }
 
-// audio.note_off(handle [, delay]) or audio.note_off(ch, note [, delay])
+// audio.chord(ch, {notes} [, vel [, delay [, strum]]]) -> {handles}: the notes
+// at once, or each strum ms after the one before. A note that could not start
+// has no handle (its slot is false).
+static int l_chord(lua_State *L)
+{
+    LIVE();
+    int ch = check_ch(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    int vel = (int)luaL_optinteger(L, 3, 100);
+    uint32_t d = opt_ms(L, 4);
+    uint32_t strum = opt_ms(L, 5);
+    int count = (int)luaL_len(L, 2);
+    luaL_argcheck(L, count >= 1 && count <= AUD_VOICES, 2, "1 to 16 notes");
+    int notes[AUD_VOICES];
+    uint32_t h[AUD_VOICES];
+    for (int i = 0; i < count; i++) {
+        lua_geti(L, 2, i + 1);
+        notes[i] = (int)luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+    }
+    if (audio_chord(ch, notes, count, vel, d, strum, h) == 0) {
+        return fail(L, AUD_ERR_FULL, NULL);
+    }
+    lua_createtable(L, count, 0);
+    for (int i = 0; i < count; i++) {
+        if (h[i]) {
+            lua_pushinteger(L, (lua_Integer)(NOTE_BIT | (h[i] & NOTE_MASK)));
+        } else {
+            lua_pushboolean(L, 0);
+        }
+        lua_seti(L, -2, i + 1);
+    }
+    return 1;
+}
+
+// audio.note_off(handle [, delay]), audio.note_off({handles} [, delay]) (a
+// chord) or audio.note_off(ch, note [, delay])
 static int l_note_off(lua_State *L)
 {
     LIVE();
+    if (lua_istable(L, 1)) {
+        uint32_t d = opt_ms(L, 2);
+        int count = (int)luaL_len(L, 1);
+        for (int i = 1; i <= count; i++) {
+            if (lua_geti(L, 1, i) != LUA_TBOOLEAN) {
+                lua_Integer h = luaL_checkinteger(L, -1);
+                luaL_argcheck(L, h >= (lua_Integer)NOTE_BIT && h <= (lua_Integer)(NOTE_BIT | NOTE_MASK), 1,
+                              "note handles from audio.chord or audio.note_on");
+                audio_note_off_h((uint32_t)h & NOTE_MASK, d);
+            }
+            lua_pop(L, 1);
+        }
+        lua_pushboolean(L, 1);
+        return 1;
+    }
     lua_Integer a = luaL_checkinteger(L, 1);
     if (a >= (lua_Integer)NOTE_BIT) {
         return push_rc(L, audio_note_off_h(check_note(L, 1), opt_ms(L, 2)));
@@ -873,7 +947,7 @@ void lh_open_audio(lua_State *L)
     static const luaL_Reg fns[] = {
         {"available", l_available}, {"init", l_init}, {"reset", l_reset}, {"synth", l_synth}, {"synth_set", l_synth_set},
         {"bank", l_bank}, {"bank_add", l_bank_add}, {"program", l_program}, {"assign", l_assign},
-        {"volume", l_volume}, {"note_on", l_note_on}, {"note_off", l_note_off}, {"cc", l_cc},
+        {"volume", l_volume}, {"note_on", l_note_on}, {"note_off", l_note_off}, {"chord", l_chord}, {"cc", l_cc},
         {"bend", l_bend}, {"pressure", l_pressure}, {"midi", l_midi}, {"all_off", l_all_off},
         {"param", l_param}, {"note_param", l_note_param}, {"note_ramp", l_note_ramp},
         {"note_bend", l_note_bend}, {"note_pressure", l_note_pressure}, {"nrpn", l_nrpn}, {"rpn", l_rpn},
