@@ -47,6 +47,11 @@ uint32_t bsp_buttons_get(void)
     return s_pressed;
 }
 
+struct i2c_master_bus_t *bsp_i2c_bus(void)
+{
+    return NULL;    // no I2C here; the emulator's audio needs no DAC
+}
+
 // Page API: raw button lines, 1 = pressed.
 EMSCRIPTEN_KEEPALIVE void emu_buttons_set(uint32_t pressed)
 {

@@ -5,6 +5,7 @@
 #include "esp_err.h"
 #include "lvgl.h"
 #include "board.h"
+#include "bsp_i2c.h"
 
 // ---- Shared SPI bus ----
 esp_err_t bsp_spi_bus_init(void);
