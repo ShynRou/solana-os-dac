@@ -10,6 +10,11 @@ site changes that came with them live in the parent repository.
 
 The move to ESP-IDF master, and an optional audio module.
 
+- **Auto-dim** (Settings > Auto-dim): Off (default), 30 s, 1, 2 or 5 min. After that long with no button
+  press the backlight drops to the driver's lowest duty (1 %, still on); any press restores the
+  Brightness setting. Saved in NVS `settings/autodim` (seconds). The timer is `main/core/os_idle.*`,
+  tested on the host with `make -C main/core/tests/idle test`.
+
 - **Audio** (`components/audio`, permission `audio`): synth and sampler voices on
   a TLV320DAC3100 headphone DAC wired to I2S0 (GPIO 5, 2, 26) and the shared I2C
   bus. 16 channels, 16 voices, 22.05/32/48 kHz mono or stereo; sine, pulse, saw,
