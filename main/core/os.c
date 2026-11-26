@@ -16,6 +16,7 @@
 #include "lvgl_private.h"
 #include "bsp.h"
 #include "os.h"
+#include "os_idle.h"
 #include "os_wifi.h"
 #include "os_settings.h"
 #include "ui.h"
@@ -47,6 +48,19 @@ static bool s_usb;                      // the last battery reading said USB (or
 static int64_t now_ms(void)
 {
     return esp_timer_get_time() / 1000;
+}
+
+// Auto-dim (Settings): the lowest backlight duty the driver takes (bsp_backlight_level
+// clamps to 1 %), so the screen stays lit but as dim as it goes.
+#define OS_DIM_PCT 1
+static os_idle_t s_idle;
+
+// Button activity: bring the screen back if it was dimmed.
+static void idle_input(void)
+{
+    if (os_idle_input(&s_idle, now_ms())) {
+        os_brightness_apply();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -628,6 +642,7 @@ static void handle(const os_event_t *ev, os_key_t *held, int64_t *next_repeat, u
     switch (ev->kind) {
     case EV_BUTTONS: {
         uint32_t down = ev->a & ev->b;
+        idle_input();           // any button event counts as activity
         if (*held_bit && !(ev->a & *held_bit)) {
             take_over_repeat(ev->a & ~down, held, next_repeat, held_bit);
         }
@@ -655,6 +670,7 @@ static void handle(const os_event_t *ev, os_key_t *held, int64_t *next_repeat, u
         break;
     }
     case EV_KEY:
+        idle_input();
         dispatch(ev->a, false);
         break;
     case EV_LAUNCH:
@@ -675,6 +691,7 @@ static void os_task(void *arg)
     uint32_t held_bit = 0;
     int64_t next_repeat = 0, next_tick = 0, next_status = 0;
 
+    os_idle_init(&s_idle, os_setting(OS_SET_AUTODIM), now_ms());
     lvgl_port_lock(0);
     switch_to(&os_launcher);
     status_update();
@@ -697,6 +714,7 @@ static void os_task(void *arg)
         if (held != OS_KEY_NONE && now >= next_repeat) {
             uint32_t pressed = bsp_buttons_get();
             if (pressed & held_bit) {
+                idle_input();       // a held key is still activity
                 dispatch(held, true);
                 next_repeat = now + REPEAT_RATE_MS;
             } else {
@@ -705,6 +723,9 @@ static void os_task(void *arg)
         }
         if (now >= next_tick) {
             next_tick = now + OS_TICK_MS;
+            if (os_idle_poll(&s_idle, now)) {
+                bsp_backlight_level(OS_DIM_PCT);
+            }
             if (s_app->on_tick) {
                 s_app->on_tick();
             }
@@ -735,6 +756,15 @@ void os_brightness_apply(void)
         level = OS_BRIGHTNESS_MAX;
     }
     bsp_backlight_level(s_bright_pct[level - 1]);
+}
+
+void os_autodim_apply(void)
+{
+    os_idle_set_timeout(&s_idle, os_setting(OS_SET_AUTODIM), now_ms());
+    if (s_idle.dimmed) {
+        os_idle_input(&s_idle, now_ms());
+        os_brightness_apply();
+    }
 }
 
 void os_invert_apply(void)

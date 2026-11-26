@@ -94,6 +94,10 @@ void os_theme_apply(void);
 // Set the backlight from the Brightness setting (any task; at boot and when
 // Settings changes it).
 void os_brightness_apply(void);
+// Settings > Auto-dim: after the setting's idle time with no button press the
+// backlight drops to OS_DIM_PCT (still on); any press restores the Brightness
+// setting. Call after changing OS_SET_AUTODIM.
+void os_autodim_apply(void);
 
 // Set the panel's colour inversion from the Invert colours setting (any task
 // but the LVGL task; at boot and when Settings changes it). See bsp.h.

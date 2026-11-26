@@ -1,6 +1,7 @@
 // Settings: user preferences (core/os_settings) plus shortcuts to system
 // tools. One row per item; SELECT (or LEFT/RIGHT on a choice) changes it.
 // Brightness steps with LEFT/RIGHT (SELECT goes round from brightest to dimmest).
+// Auto-dim steps Off/30s/1m/2m/5m the same way (core/os_idle).
 // Invert colours flips with SELECT or LEFT/RIGHT, at once, so wrong colours
 // (RED on cyan: a prototype's panel) are put right where they're seen.
 // Sound and Software update open their screens (apps/sound, apps/update).
@@ -16,7 +17,7 @@
 #include "core/ui.h"
 #include "audio.h"
 
-enum { ROW_THEME, ROW_BRIGHTNESS, ROW_INVERT, ROW_SOUND, ROW_UPDATE, ROW_CALIB, ROW_RESET, ROW_COUNT };
+enum { ROW_THEME, ROW_BRIGHTNESS, ROW_AUTODIM, ROW_INVERT, ROW_SOUND, ROW_UPDATE, ROW_CALIB, ROW_RESET, ROW_COUNT };
 
 static ui_list_t *s_list;
 
@@ -44,6 +45,20 @@ static void row(int i, ui_row_t *r, void *ctx)
         }
         bar[OS_BRIGHTNESS_MAX] = 0;
         strlcpy(r->right, bar, sizeof(r->right));
+        r->right_color = COL_TEXT;
+        break;
+    }
+    case ROW_AUTODIM: {
+        int s = os_setting(OS_SET_AUTODIM);
+        strlcpy(r->title, "Auto-dim", sizeof(r->title));
+        strlcpy(r->sub, "Dim the screen when idle; any button wakes it", sizeof(r->sub));
+        if (s <= 0) {
+            strlcpy(r->right, "Off", sizeof(r->right));
+        } else if (s % 60) {
+            snprintf(r->right, sizeof(r->right), "%ds", s);
+        } else {
+            snprintf(r->right, sizeof(r->right), "%dm", s / 60);
+        }
         r->right_color = COL_TEXT;
         break;
     }
@@ -138,6 +153,30 @@ static void set_brightness(os_key_t k)
     ui_list_refresh(s_list);
 }
 
+// Off, 30 s, 1, 2 and 5 min. LEFT/RIGHT step and stop at the ends; SELECT goes round.
+static const int s_autodim_opts[] = {0, 30, 60, 120, 300};
+#define AUTODIM_N ((int)(sizeof(s_autodim_opts) / sizeof(s_autodim_opts[0])))
+
+static void set_autodim(os_key_t k)
+{
+    int cur = 0;      // an unknown saved value counts as Off
+    for (int i = 0; i < AUTODIM_N; i++) {
+        if (s_autodim_opts[i] == os_setting(OS_SET_AUTODIM)) {
+            cur = i;
+        }
+    }
+    int next = k == OS_KEY_LEFT ? cur - 1 : cur + 1;
+    if (k == OS_KEY_SELECT) {
+        next %= AUTODIM_N;
+    }
+    if (next < 0 || next >= AUTODIM_N) {
+        return;
+    }
+    os_setting_set(OS_SET_AUTODIM, s_autodim_opts[next]);
+    os_autodim_apply();
+    ui_list_refresh(s_list);
+}
+
 static void enter(lv_obj_t *root)
 {
     s_list = ui_list_create(root, 4, OS_ROOT_H - 4 - UI_HINT_H, row, NULL);
@@ -153,6 +192,10 @@ static bool on_key(os_key_t k, bool repeat)
     int i = ui_list_selected(s_list);
     if (i == ROW_BRIGHTNESS && (k == OS_KEY_LEFT || k == OS_KEY_RIGHT || (k == OS_KEY_SELECT && !repeat))) {
         set_brightness(k);
+        return true;
+    }
+    if (i == ROW_AUTODIM && (k == OS_KEY_LEFT || k == OS_KEY_RIGHT || (k == OS_KEY_SELECT && !repeat))) {
+        set_autodim(k);
         return true;
     }
     bool change = k == OS_KEY_SELECT || ((k == OS_KEY_LEFT || k == OS_KEY_RIGHT) && (i == ROW_THEME || i == ROW_INVERT));
