@@ -18,6 +18,8 @@ static const struct {
     // The key 0.4.1-0.4.2 used, with the same meaning: what a badge saved then holds.
     [OS_SET_LCD_INVERT] = {"lcd_invert", 1},
     [OS_SET_AUTODIM] = {"autodim", 0},
+    [OS_SET_GOSSIP] = {"gossip", 1},
+    [OS_SET_LEADER] = {"leader", 0},
 };
 
 static int32_t s_val[OS_SET_COUNT];

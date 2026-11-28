@@ -4,8 +4,10 @@
 // Auto-dim steps Off/30s/1m/2m/5m the same way (core/os_idle).
 // Invert colours flips with SELECT or LEFT/RIGHT, at once, so wrong colours
 // (RED on cyan: a prototype's panel) are put right where they're seen.
-// Sound and Software update open their screens (apps/sound, apps/update).
-// Factory reset asks again in an OS confirm dialog (SELECT twice).
+// Sound opens its screen (apps/sound); Gossip and May become a leader (2.4.0) flip
+// with SELECT or LEFT/RIGHT and tell the gossip services (game/gossip.h,
+// game/gossip_role.h) at once. Software update opens the update screen
+// (apps/update). Factory reset asks again in an OS confirm dialog (SELECT twice).
 
 #include <stdio.h>
 #include <string.h>
@@ -16,8 +18,10 @@
 #include "core/os_settings.h"
 #include "core/ui.h"
 #include "audio.h"
+#include "game/gossip.h"
+#include "game/gossip_role.h"
 
-enum { ROW_THEME, ROW_BRIGHTNESS, ROW_AUTODIM, ROW_INVERT, ROW_SOUND, ROW_UPDATE, ROW_CALIB, ROW_RESET, ROW_COUNT };
+enum { ROW_THEME, ROW_BRIGHTNESS, ROW_AUTODIM, ROW_INVERT, ROW_SOUND, ROW_GOSSIP, ROW_LEADER, ROW_UPDATE, ROW_CALIB, ROW_RESET, ROW_COUNT };
 
 static ui_list_t *s_list;
 
@@ -82,6 +86,23 @@ static void row(int i, ui_row_t *r, void *ctx)
         }
         strlcpy(r->right, LV_SYMBOL_RIGHT, sizeof(r->right));
         break;
+    case ROW_GOSSIP: {
+        bool on = os_setting(OS_SET_GOSSIP) != 0;
+        strlcpy(r->title, "Gossip", sizeof(r->title));
+        strlcpy(r->sub, on ? "Spread and catch programs nearby" : "Off: nothing heard, nothing spread",
+                sizeof(r->sub));
+        strlcpy(r->right, on ? "On" : "Off", sizeof(r->right));
+        r->right_color = COL_TEXT;
+        break;
+    }
+    case ROW_LEADER: {
+        bool on = os_setting(OS_SET_LEADER) != 0;
+        strlcpy(r->title, "May become a leader", sizeof(r->title));
+        strlcpy(r->sub, "Gossip roles: Leader, MEV Bot and more", sizeof(r->sub));
+        strlcpy(r->right, on ? "On" : "Off", sizeof(r->right));
+        r->right_color = COL_TEXT;
+        break;
+    }
     case ROW_UPDATE: {
         os_cloud_info_t *in = lv_malloc(sizeof(*in));
         if (in) {
@@ -198,7 +219,7 @@ static bool on_key(os_key_t k, bool repeat)
         set_autodim(k);
         return true;
     }
-    bool change = k == OS_KEY_SELECT || ((k == OS_KEY_LEFT || k == OS_KEY_RIGHT) && (i == ROW_THEME || i == ROW_INVERT));
+    bool change = k == OS_KEY_SELECT || ((k == OS_KEY_LEFT || k == OS_KEY_RIGHT) && (i == ROW_THEME || i == ROW_INVERT || i == ROW_GOSSIP || i == ROW_LEADER));
     if (!change || repeat) {
         return k != OS_KEY_BACK;
     }
@@ -214,6 +235,16 @@ static bool on_key(os_key_t k, bool repeat)
         break;
     case ROW_SOUND:
         os_launch(&app_sound);
+        break;
+    case ROW_GOSSIP:
+        os_setting_set(OS_SET_GOSSIP, !os_setting(OS_SET_GOSSIP));
+        gossip_setting_changed();
+        ui_list_refresh(s_list);
+        break;
+    case ROW_LEADER:
+        os_setting_set(OS_SET_LEADER, !os_setting(OS_SET_LEADER));
+        gossip_role_setting_changed();
+        ui_list_refresh(s_list);
         break;
     case ROW_UPDATE:
         os_launch(&app_update);
